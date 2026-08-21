@@ -1,0 +1,67 @@
+extracted_with_headers/claude_net.pyc: exit=0; Unsupported opcode: KW_NAMES
+recovered_bytecode/src/__init__.pyc: exit=-11; 
+recovered_bytecode/src/branding.pyc: exit=0; Unsupported opcode: POP_JUMP_FORWARD_IF_FALSE
+recovered_bytecode/src/browser_env.pyc: exit=0; Unsupported opcode: BINARY_OP
+recovered_bytecode/src/cli.pyc: exit=1; Unsupported opcode: POP_JUMP_FORWARD_IF_FALSE
+Unsupported opcode: POP_JUMP_FORWARD_IF_NOT_NONE
+Unsupported opcode: POP_JUMP_FORWARD_IF_FALSE
+Unsupported opcode: POP_JUMP_FORWARD_IF_FALSE
+Error decompyling recovered_bytecode/src/cli.pyc: vector
+recovered_bytecode/src/detect.pyc: exit=-11; 
+recovered_bytecode/src/install.pyc: exit=0; Unsupported opcode: BINARY_OP
+recovered_bytecode/src/isp_parse.pyc: exit=0; Unsupported opcode: MAP_ADD
+recovered_bytecode/src/platform_adapter.pyc: exit=0; Unsupported opcode: POP_JUMP_FORWARD_IF_FALSE
+Unsupported opcode: POP_JUMP_FORWARD_IF_FALSE
+Unsupported opcode: POP_JUMP_FORWARD_IF_TRUE
+Unsupported opcode: POP_JUMP_FORWARD_IF_FALSE
+Unsupported opcode: POP_JUMP_FORWARD_IF_FALSE
+Unsupported opcode: POP_JUMP_FORWARD_IF_FALSE
+Unsupported opcode: POP_JUMP_FORWARD_IF_FALSE
+Unsupported argument found for LIST_EXTEND
+Unsupported opcode: POP_JUMP_FORWARD_IF_FALSE
+Unsupported opcode: POP_JUMP_FORWARD_IF_TRUE
+Unsupported opcode: POP_JUMP_FORWARD_IF_TRUE
+Unsupported opcode: POP_JUMP_FORWARD_IF_FALSE
+Unsupported opcode: POP_JUMP_FORWARD_IF_FALSE
+Unsupported opcode: POP_JUMP_FORWARD_IF_FALSE
+Unsupported opcode: POP_JUMP_FORWARD_IF_FALSE
+Unsupported opcode: POP_JUMP_FORWARD_IF_FALSE
+Unsupported opcode: POP_JUMP_FORWARD_IF_FALSE
+Unsupported opcode: KW_NAMES
+Unsupported opcode: POP_JUMP_FORWARD_IF_FALSE
+Unsupported opcode: POP_JUMP_FORWARD_IF_FALSE
+Unsupported opcode: KW_NAMES
+Unsupported opcode: KW_NAMES
+Unsupported opcode: MAKE_CELL
+Unsupported opcode: POP_JUMP_FORWARD_IF_TRUE
+Unsupported argument found for LIST_EXTEND
+Unsupported opcode: KW_NAMES
+Unsupported opcode: POP_JUMP_FORWARD_IF_FALSE
+recovered_bytecode/src/runlog.pyc: exit=0; Unsupported opcode: BINARY_OP
+recovered_bytecode/src/state.pyc: exit=0; Unsupported opcode: BINARY_OP
+recovered_bytecode/src/tips.pyc: exit=0; Unsupported opcode: BINARY_OP
+recovered_bytecode/src/verge_profile.pyc: exit=0; Unsupported opcode: BINARY_OP
+recovered_bytecode/src/verify.pyc: exit=1; Unsupported Node type: 12
+Unsupported opcode: KW_NAMES
+Unsupported opcode: KW_NAMES
+Unsupported opcode: MAKE_CELL
+Unsupported opcode: MAKE_CELL
+Unsupported opcode: POP_JUMP_FORWARD_IF_TRUE
+Unsupported opcode: KW_NAMES
+Unsupported opcode: POP_JUMP_FORWARD_IF_TRUE
+Unsupported opcode: POP_JUMP_FORWARD_IF_TRUE
+Unsupported opcode: MAKE_CELL
+Unsupported opcode: KW_NAMES
+Unsupported opcode: MAKE_CELL
+Unsupported opcode: POP_JUMP_FORWARD_IF_FALSE
+Unsupported opcode: POP_JUMP_FORWARD_IF_TRUE
+Unsupported opcode: MAKE_CELL
+Unsupported opcode: POP_JUMP_FORWARD_IF_FALSE
+Unsupported opcode: POP_JUMP_FORWARD_IF_FALSE
+Unsupported opcode: POP_JUMP_FORWARD_IF_FALSE
+Error decompyling recovered_bytecode/src/verify.pyc: vector
+recovered_bytecode/src/wizard.pyc: exit=0; Unsupported opcode: POP_JUMP_FORWARD_IF_FALSE
+Unsupported opcode: KW_NAMES
+Unsupported opcode: POP_JUMP_FORWARD_IF_TRUE
+Unsupported opcode: POP_JUMP_FORWARD_IF_FALSE
+Unsupported opcode: KW_NAMES

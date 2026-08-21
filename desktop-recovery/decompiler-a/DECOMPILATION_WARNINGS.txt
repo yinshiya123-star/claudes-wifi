@@ -1,0 +1,32 @@
+recovered_bytecode/src/__init__.pyc: exit=0; Warning: Refusing to pop last block when there is more code to parse pos: 18 OP: ec
+recovered_bytecode/src/cli.pyc: exit=1; PycBuffer::getByte(): Unexpected end of stream
+recovered_bytecode/src/detect.pyc: exit=1; Warning: Refusing to pop last block when there is more code to parse pos: 98 OP: ec
+Warning: Stack history is not empty!
+Warning: block stack is not empty!
+PycBuffer::getByte(): Unexpected end of stream
+recovered_bytecode/src/install.pyc: exit=1; PycBuffer::getByte(): Unexpected end of stream
+recovered_bytecode/src/isp_parse.pyc: exit=1; Unsupported Node type: 12
+Warning: Refusing to pop last block when there is more code to parse pos: 98 OP: ec
+Warning: Refusing to pop last block when there is more code to parse pos: 182 OP: ec
+PycBuffer::getByte(): Unexpected end of stream
+recovered_bytecode/src/platform_adapter.pyc: exit=1; Warning: Stack history is not empty!
+Warning: block stack is not empty!
+Warning: block stack is not empty!
+Unsupported argument found for LIST_EXTEND
+Warning: Refusing to pop last block when there is more code to parse pos: 160 OP: ec
+Warning: Refusing to pop last block when there is more code to parse pos: 184 OP: ec
+PycBuffer::getByte(): Unexpected end of stream
+recovered_bytecode/src/runlog.pyc: exit=1; PycBuffer::getByte(): Unexpected end of stream
+recovered_bytecode/src/state.pyc: exit=1; Unsupported Node type: 12
+Unsupported Node type: 12
+PycBuffer::getByte(): Unexpected end of stream
+recovered_bytecode/src/verge_profile.pyc: exit=1; Error decompyling recovered_bytecode/src/verge_profile.pyc: std::bad_cast
+recovered_bytecode/src/verify.pyc: exit=1; Unsupported Node type: 12
+Warning: block stack is not empty!
+Something TERRIBLE happened!
+Something TERRIBLE happened!
+PycBuffer::getByte(): Unexpected end of stream
+recovered_bytecode/src/wizard.pyc: exit=1; Warning: Refusing to pop last block when there is more code to parse pos: 322 OP: ec
+Something TERRIBLE happened!
+Something TERRIBLE happened!
+PycBuffer::getByte(): Unexpected end of stream

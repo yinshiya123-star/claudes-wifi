@@ -1,0 +1,272 @@
+package com.jael.claudenet;
+
+import android.app.Activity;
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.Context;
+import android.content.Intent;
+import android.content.SharedPreferences;
+import android.graphics.Color;
+import android.net.Uri;
+import android.os.Bundle;
+import android.text.InputType;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.ArrayAdapter;
+import android.widget.Button;
+import android.widget.EditText;
+import android.widget.LinearLayout;
+import android.widget.ScrollView;
+import android.widget.Spinner;
+import android.widget.TextView;
+import android.widget.Toast;
+
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
+
+public final class MainActivity extends Activity {
+    private static final int CREATE_CONFIG = 101;
+    private static final String PREFS = "claude_net_android";
+    private static final String CLIENT_RELEASES =
+            "https://github.com/MetaCubeX/ClashMetaForAndroid/releases";
+
+    private EditText subscription;
+    private EditText host;
+    private EditText port;
+    private EditText username;
+    private EditText password;
+    private Spinner protocol;
+    private TextView status;
+    private String pendingConfig;
+
+    @Override
+    protected void onCreate(Bundle state) {
+        super.onCreate(state);
+        setTitle("Claude 网络配置助手");
+        setContentView(createContent());
+        restore();
+    }
+
+    private View createContent() {
+        int padding = dp(20);
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(padding, dp(28), padding, dp(36));
+        root.setBackgroundColor(Color.rgb(246, 248, 252));
+        scroll.addView(root, new ScrollView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        TextView title = text("Claude 网络配置助手", 27, Color.rgb(20, 45, 88));
+        title.setTypeface(null, 1);
+        root.addView(title);
+        TextView byline = text("原项目作者：Jael · Android 本地配置版", 14,
+                Color.rgb(80, 95, 120));
+        byline.setPadding(0, dp(5), 0, dp(18));
+        root.addView(byline);
+
+        TextView note = text(
+                "填写后生成 Mihomo/Clash Meta 配置。数据只保存在本机；本应用不上传账号密码，也不内置 VPN 内核。",
+                15, Color.rgb(40, 53, 72));
+        note.setBackgroundColor(Color.rgb(228, 237, 252));
+        note.setPadding(dp(14), dp(12), dp(14), dp(12));
+        root.addView(note, matchWrap(dp(14)));
+
+        root.addView(section("机场订阅"));
+        subscription = field("https://… 订阅地址", InputType.TYPE_CLASS_TEXT
+                | InputType.TYPE_TEXT_VARIATION_URI);
+        root.addView(subscription, matchWrap(dp(10)));
+
+        root.addView(section("美国住宅 ISP"));
+        host = field("IP 地址或域名", InputType.TYPE_CLASS_TEXT
+                | InputType.TYPE_TEXT_VARIATION_URI);
+        root.addView(host, matchWrap(dp(8)));
+        port = field("端口", InputType.TYPE_CLASS_NUMBER);
+        root.addView(port, matchWrap(dp(8)));
+        username = field("账号（白名单授权可留空）", InputType.TYPE_CLASS_TEXT);
+        root.addView(username, matchWrap(dp(8)));
+        password = field("密码（可留空）", InputType.TYPE_CLASS_TEXT
+                | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        root.addView(password, matchWrap(dp(8)));
+
+        protocol = new Spinner(this);
+        String[] protocols = {"SOCKS5", "HTTP"};
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(this,
+                android.R.layout.simple_spinner_dropdown_item, protocols);
+        protocol.setAdapter(adapter);
+        root.addView(protocol, matchWrap(dp(16)));
+
+        Button save = button("保存到本机", Color.rgb(72, 92, 122));
+        save.setOnClickListener(v -> {
+            if (validateAndBuild() != null) {
+                save();
+                showStatus("✓ 已保存。账号信息只在本机应用数据中。", true);
+            }
+        });
+        root.addView(save, matchWrap(dp(9)));
+
+        Button export = button("生成并导出 YAML", Color.rgb(27, 95, 170));
+        export.setOnClickListener(v -> exportConfig());
+        root.addView(export, matchWrap(dp(9)));
+
+        Button copy = button("复制 YAML 到剪贴板", Color.rgb(39, 122, 109));
+        copy.setOnClickListener(v -> copyConfig());
+        root.addView(copy, matchWrap(dp(9)));
+
+        Button client = button("打开兼容客户端发布页", Color.rgb(108, 75, 150));
+        client.setOnClickListener(v -> {
+            Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(CLIENT_RELEASES));
+            startActivity(intent);
+        });
+        root.addView(client, matchWrap(dp(9)));
+
+        status = text("生成后，将 YAML 导入兼容 Mihomo/Clash Meta 的 Android 客户端，"
+                + "选择“Claude-前置节点”，再开启客户端 VPN。", 14,
+                Color.rgb(75, 82, 94));
+        status.setPadding(dp(12), dp(13), dp(12), dp(13));
+        status.setBackgroundColor(Color.WHITE);
+        root.addView(status, matchWrap(0));
+        return scroll;
+    }
+
+    private void exportConfig() {
+        pendingConfig = validateAndBuild();
+        if (pendingConfig == null) return;
+        save();
+        Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("application/x-yaml");
+        intent.putExtra(Intent.EXTRA_TITLE, "claude-net-android.yaml");
+        startActivityForResult(intent, CREATE_CONFIG);
+    }
+
+    private void copyConfig() {
+        String config = validateAndBuild();
+        if (config == null) return;
+        save();
+        ClipboardManager clipboard =
+                (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+        clipboard.setPrimaryClip(ClipData.newPlainText("claude-net.yaml", config));
+        showStatus("✓ YAML 已复制。注意：剪贴板可能被输入法或其他应用读取。", true);
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != CREATE_CONFIG || resultCode != RESULT_OK
+                || data == null || data.getData() == null || pendingConfig == null) {
+            return;
+        }
+        try (OutputStream output = getContentResolver().openOutputStream(data.getData())) {
+            if (output == null) throw new IllegalStateException("无法打开目标文件");
+            output.write(pendingConfig.getBytes(StandardCharsets.UTF_8));
+            showStatus("✓ 配置已导出。请在兼容客户端中导入该 YAML。", true);
+        } catch (Exception error) {
+            showStatus("导出失败：" + error.getMessage(), false);
+        }
+    }
+
+    private String validateAndBuild() {
+        String url = subscription.getText().toString().trim();
+        String server = host.getText().toString().trim();
+        String rawPort = port.getText().toString().trim();
+        if (!(url.startsWith("https://") || url.startsWith("http://"))) {
+            showStatus("订阅地址必须以 https:// 或 http:// 开头。", false);
+            return null;
+        }
+        if (server.isEmpty() || server.contains(" ")) {
+            showStatus("请填写有效的 ISP IP 地址或域名。", false);
+            return null;
+        }
+        int number;
+        try {
+            number = Integer.parseInt(rawPort);
+        } catch (NumberFormatException error) {
+            showStatus("ISP 端口必须是数字。", false);
+            return null;
+        }
+        if (number < 1 || number > 65535) {
+            showStatus("ISP 端口范围必须是 1–65535。", false);
+            return null;
+        }
+        return ConfigBuilder.build(url, server, number,
+                username.getText().toString().trim(),
+                password.getText().toString(),
+                protocol.getSelectedItem().toString());
+    }
+
+    private void save() {
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                .putString("subscription", subscription.getText().toString().trim())
+                .putString("host", host.getText().toString().trim())
+                .putString("port", port.getText().toString().trim())
+                .putString("username", username.getText().toString().trim())
+                .putString("password", password.getText().toString())
+                .putInt("protocol", protocol.getSelectedItemPosition())
+                .apply();
+    }
+
+    private void restore() {
+        SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+        subscription.setText(prefs.getString("subscription", ""));
+        host.setText(prefs.getString("host", ""));
+        port.setText(prefs.getString("port", ""));
+        username.setText(prefs.getString("username", ""));
+        password.setText(prefs.getString("password", ""));
+        protocol.setSelection(prefs.getInt("protocol", 0));
+    }
+
+    private void showStatus(String message, boolean success) {
+        status.setText(message);
+        status.setTextColor(success ? Color.rgb(20, 110, 70) : Color.rgb(180, 40, 40));
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
+    }
+
+    private TextView section(String label) {
+        TextView view = text(label, 18, Color.rgb(20, 45, 88));
+        view.setTypeface(null, 1);
+        view.setPadding(0, dp(22), 0, dp(7));
+        return view;
+    }
+
+    private EditText field(String hint, int inputType) {
+        EditText view = new EditText(this);
+        view.setHint(hint);
+        view.setTextSize(16);
+        view.setSingleLine(true);
+        view.setInputType(inputType);
+        view.setPadding(dp(12), dp(10), dp(12), dp(10));
+        view.setBackgroundColor(Color.WHITE);
+        return view;
+    }
+
+    private Button button(String label, int color) {
+        Button view = new Button(this);
+        view.setText(label);
+        view.setTextColor(Color.WHITE);
+        view.setTextSize(16);
+        view.setAllCaps(false);
+        view.setBackgroundColor(color);
+        return view;
+    }
+
+    private TextView text(String value, int size, int color) {
+        TextView view = new TextView(this);
+        view.setText(value);
+        view.setTextSize(size);
+        view.setTextColor(color);
+        return view;
+    }
+
+    private LinearLayout.LayoutParams matchWrap(int bottomMargin) {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        params.bottomMargin = bottomMargin;
+        return params;
+    }
+
+    private int dp(int value) {
+        return Math.round(value * getResources().getDisplayMetrics().density);
+    }
+}
