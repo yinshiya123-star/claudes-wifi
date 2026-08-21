@@ -6,6 +6,7 @@ import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.ActivityNotFoundException;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
@@ -29,6 +30,7 @@ public final class MainActivity extends Activity {
     private static final String PREFS = "claude_net_android";
     private static final String CLIENT_RELEASES =
             "https://github.com/MetaCubeX/ClashMetaForAndroid/releases";
+    private static final String CMFA_PACKAGE = "com.github.metacubex.clash.meta";
 
     private EditText subscription;
     private EditText host;
@@ -38,6 +40,7 @@ public final class MainActivity extends Activity {
     private Spinner protocol;
     private TextView status;
     private String pendingConfig;
+    private LocalConfigServer configServer;
 
     @Override
     protected void onCreate(Bundle state) {
@@ -106,7 +109,11 @@ public final class MainActivity extends Activity {
         });
         root.addView(save, matchWrap(dp(9)));
 
-        Button export = button("生成并导出 YAML", Color.rgb(27, 95, 170));
+        Button autoImport = button("一键导入 Clash Meta", Color.rgb(27, 95, 170));
+        autoImport.setOnClickListener(v -> autoImportConfig());
+        root.addView(autoImport, matchWrap(dp(9)));
+
+        Button export = button("导出 YAML（备用）", Color.rgb(72, 92, 122));
         export.setOnClickListener(v -> exportConfig());
         root.addView(export, matchWrap(dp(9)));
 
@@ -121,13 +128,41 @@ public final class MainActivity extends Activity {
         });
         root.addView(client, matchWrap(dp(9)));
 
-        status = text("生成后，将 YAML 导入兼容 Mihomo/Clash Meta 的 Android 客户端，"
+        status = text("点“一键导入”会直接打开 Clash Meta 的添加页面；确认添加后，"
                 + "选择“Claude-前置节点”，再开启客户端 VPN。", 14,
                 Color.rgb(75, 82, 94));
         status.setPadding(dp(12), dp(13), dp(12), dp(13));
         status.setBackgroundColor(Color.WHITE);
         root.addView(status, matchWrap(0));
         return scroll;
+    }
+
+    private void autoImportConfig() {
+        String config = validateAndBuild();
+        if (config == null) return;
+        save();
+        if (configServer != null) configServer.close();
+        try {
+            configServer = new LocalConfigServer(config);
+            Uri deepLink = new Uri.Builder()
+                    .scheme("clashmeta")
+                    .authority("install-config")
+                    .appendQueryParameter("url", configServer.url())
+                    .build();
+            Intent intent = new Intent(Intent.ACTION_VIEW, deepLink);
+            intent.setPackage(CMFA_PACKAGE);
+            startActivity(intent);
+            showStatus("✓ 配置已发送到 Clash Meta，请在客户端确认添加。", true);
+        } catch (ActivityNotFoundException error) {
+            if (configServer != null) configServer.close();
+            configServer = null;
+            showStatus("未安装 Clash Meta for Android，正在打开官方下载页。", false);
+            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(CLIENT_RELEASES)));
+        } catch (Exception error) {
+            if (configServer != null) configServer.close();
+            configServer = null;
+            showStatus("自动导入失败：" + error.getMessage(), false);
+        }
     }
 
     private void exportConfig() {
@@ -165,6 +200,12 @@ public final class MainActivity extends Activity {
         } catch (Exception error) {
             showStatus("导出失败：" + error.getMessage(), false);
         }
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (configServer != null) configServer.close();
+        super.onDestroy();
     }
 
     private String validateAndBuild() {

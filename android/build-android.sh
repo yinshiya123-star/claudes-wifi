@@ -28,13 +28,14 @@ mkdir -p "$CLASSES" "$DEX"
   --manifest "$ROOT/app/src/main/AndroidManifest.xml" \
   --min-sdk-version 26 \
   --target-sdk-version 34 \
-  --version-code 1 \
-  --version-name 0.1.0
+  --version-code 2 \
+  --version-name 0.2.0
 
 javac -encoding UTF-8 -source 8 -target 8 \
   -classpath "$ANDROID_JAR" \
   -d "$CLASSES" \
   "$ROOT/app/src/main/java/com/jael/claudenet/ConfigBuilder.java" \
+  "$ROOT/app/src/main/java/com/jael/claudenet/LocalConfigServer.java" \
   "$ROOT/app/src/main/java/com/jael/claudenet/MainActivity.java"
 
 jar cf "$BUILD/classes.jar" -C "$CLASSES" .
