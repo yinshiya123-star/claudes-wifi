@@ -8,6 +8,7 @@
 它可以：
 
 - 在设备本地保存机场订阅 URL 与住宅 ISP 代理信息；
+- 一次输入多个端口，并自动识别 SOCKS5、HTTPS 或 HTTP 代理；
 - 生成 Mihomo/Clash Meta 可读取的链式代理 YAML；
 - 通过本机一次性回环地址和官方 `clashmeta://install-config` 深链一键导入；
 - 将配置复制到剪贴板或通过系统文件选择器导出；
@@ -22,6 +23,6 @@ Clash Meta 客户端，用户仍需在客户端确认添加，并由客户端申
 ./build-android.sh
 ```
 
-当前版本：`0.2.0`。构建产物：`build/Claude网络配置助手-Android-debug.apk`
+当前版本：`0.3.0`。构建产物：`build/Claude网络配置助手-Android-debug.apk`
 
 要求：JDK 17、Android SDK Platform 34、Build Tools 34.0.0。

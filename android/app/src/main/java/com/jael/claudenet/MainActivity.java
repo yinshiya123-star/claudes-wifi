@@ -24,6 +24,8 @@ import android.widget.Toast;
 
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 
 public final class MainActivity extends Activity {
     private static final int CREATE_CONFIG = 101;
@@ -85,7 +87,10 @@ public final class MainActivity extends Activity {
         host = field("IP 地址或域名", InputType.TYPE_CLASS_TEXT
                 | InputType.TYPE_TEXT_VARIATION_URI);
         root.addView(host, matchWrap(dp(8)));
-        port = field("端口", InputType.TYPE_CLASS_NUMBER);
+        port = field("端口（多个用空格、逗号或换行分隔）",
+                InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
+        port.setSingleLine(false);
+        port.setMinLines(2);
         root.addView(port, matchWrap(dp(8)));
         username = field("账号（白名单授权可留空）", InputType.TYPE_CLASS_TEXT);
         root.addView(username, matchWrap(dp(8)));
@@ -94,15 +99,20 @@ public final class MainActivity extends Activity {
         root.addView(password, matchWrap(dp(8)));
 
         protocol = new Spinner(this);
-        String[] protocols = {"SOCKS5", "HTTP"};
+        String[] protocols = {"自动识别（推荐）", "SOCKS5", "HTTPS", "HTTP"};
         ArrayAdapter<String> adapter = new ArrayAdapter<>(this,
                 android.R.layout.simple_spinner_dropdown_item, protocols);
         protocol.setAdapter(adapter);
-        root.addView(protocol, matchWrap(dp(16)));
+        root.addView(protocol, matchWrap(dp(9)));
+
+        Button detect = button("检测所有端口协议", Color.rgb(108, 75, 150));
+        detect.setOnClickListener(v -> withConfig(config ->
+                showStatus("✓ 检测完成，所有已识别端口都会加入配置。", true)));
+        root.addView(detect, matchWrap(dp(16)));
 
         Button save = button("保存到本机", Color.rgb(72, 92, 122));
         save.setOnClickListener(v -> {
-            if (validateAndBuild() != null) {
+            if (readInput() != null) {
                 save();
                 showStatus("✓ 已保存。账号信息只在本机应用数据中。", true);
             }
@@ -138,8 +148,10 @@ public final class MainActivity extends Activity {
     }
 
     private void autoImportConfig() {
-        String config = validateAndBuild();
-        if (config == null) return;
+        withConfig(this::openImport);
+    }
+
+    private void openImport(String config) {
         save();
         if (configServer != null) configServer.close();
         try {
@@ -166,24 +178,25 @@ public final class MainActivity extends Activity {
     }
 
     private void exportConfig() {
-        pendingConfig = validateAndBuild();
-        if (pendingConfig == null) return;
-        save();
-        Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
-        intent.addCategory(Intent.CATEGORY_OPENABLE);
-        intent.setType("application/x-yaml");
-        intent.putExtra(Intent.EXTRA_TITLE, "claude-net-android.yaml");
-        startActivityForResult(intent, CREATE_CONFIG);
+        withConfig(config -> {
+            pendingConfig = config;
+            save();
+            Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+            intent.addCategory(Intent.CATEGORY_OPENABLE);
+            intent.setType("application/x-yaml");
+            intent.putExtra(Intent.EXTRA_TITLE, "claude-net-android.yaml");
+            startActivityForResult(intent, CREATE_CONFIG);
+        });
     }
 
     private void copyConfig() {
-        String config = validateAndBuild();
-        if (config == null) return;
-        save();
-        ClipboardManager clipboard =
-                (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-        clipboard.setPrimaryClip(ClipData.newPlainText("claude-net.yaml", config));
-        showStatus("✓ YAML 已复制。注意：剪贴板可能被输入法或其他应用读取。", true);
+        withConfig(config -> {
+            save();
+            ClipboardManager clipboard =
+                    (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+            clipboard.setPrimaryClip(ClipData.newPlainText("claude-net.yaml", config));
+            showStatus("✓ YAML 已复制。注意：剪贴板可能被输入法或其他应用读取。", true);
+        });
     }
 
     @Override
@@ -208,10 +221,9 @@ public final class MainActivity extends Activity {
         super.onDestroy();
     }
 
-    private String validateAndBuild() {
+    private InputData readInput() {
         String url = subscription.getText().toString().trim();
         String server = host.getText().toString().trim();
-        String rawPort = port.getText().toString().trim();
         if (!(url.startsWith("https://") || url.startsWith("http://"))) {
             showStatus("订阅地址必须以 https:// 或 http:// 开头。", false);
             return null;
@@ -220,21 +232,81 @@ public final class MainActivity extends Activity {
             showStatus("请填写有效的 ISP IP 地址或域名。", false);
             return null;
         }
-        int number;
+        List<Integer> ports;
         try {
-            number = Integer.parseInt(rawPort);
-        } catch (NumberFormatException error) {
-            showStatus("ISP 端口必须是数字。", false);
+            ports = ProxyPortDetector.parsePorts(port.getText().toString());
+        } catch (IllegalArgumentException error) {
+            showStatus(error.getMessage(), false);
             return null;
         }
-        if (number < 1 || number > 65535) {
-            showStatus("ISP 端口范围必须是 1–65535。", false);
-            return null;
-        }
-        return ConfigBuilder.build(url, server, number,
+        return new InputData(url, server, ports,
                 username.getText().toString().trim(),
-                password.getText().toString(),
-                protocol.getSelectedItem().toString());
+                password.getText().toString());
+    }
+
+    private void withConfig(ConfigAction action) {
+        InputData input = readInput();
+        if (input == null) return;
+        int selection = protocol.getSelectedItemPosition();
+        if (selection != 0) {
+            ProxyPortDetector.Protocol selected = ProxyPortDetector.Protocol.valueOf(
+                    protocol.getSelectedItem().toString());
+            List<ProxyPortDetector.Endpoint> endpoints = new ArrayList<>();
+            for (int number : input.ports) {
+                endpoints.add(new ProxyPortDetector.Endpoint(number, selected));
+            }
+            action.run(ConfigBuilder.build(input.url, input.host, endpoints,
+                    input.username, input.password));
+            return;
+        }
+
+        showStatus("正在并行检测端口协议，请稍候……", true);
+        new Thread(() -> {
+            try {
+                List<ProxyPortDetector.Endpoint> detected = ProxyPortDetector.detectAll(
+                        input.host, input.ports, input.username, input.password);
+                List<ProxyPortDetector.Endpoint> known = new ArrayList<>();
+                StringBuilder result = new StringBuilder();
+                for (ProxyPortDetector.Endpoint endpoint : detected) {
+                    if (result.length() > 0) result.append("；");
+                    result.append(endpoint.port).append(" → ").append(endpoint.protocol.name());
+                    if (endpoint.protocol != ProxyPortDetector.Protocol.UNKNOWN) known.add(endpoint);
+                }
+                runOnUiThread(() -> {
+                    if (known.isEmpty()) {
+                        showStatus("未识别到可用协议（" + result
+                                + "）。请检查网络/账号，或在下拉框手动选择协议。", false);
+                        return;
+                    }
+                    showStatus("检测结果：" + result, true);
+                    action.run(ConfigBuilder.build(input.url, input.host, known,
+                            input.username, input.password));
+                });
+            } catch (Exception error) {
+                runOnUiThread(() -> showStatus(
+                        "检测失败：" + error.getMessage() + "。可手动选择协议后重试。", false));
+            }
+        }, "proxy-port-detector").start();
+    }
+
+    private interface ConfigAction {
+        void run(String config);
+    }
+
+    private static final class InputData {
+        final String url;
+        final String host;
+        final List<Integer> ports;
+        final String username;
+        final String password;
+
+        InputData(String url, String host, List<Integer> ports, String username, String password) {
+            this.url = url;
+            this.host = host;
+            this.ports = ports;
+            this.username = username;
+            this.password = password;
+        }
     }
 
     private void save() {

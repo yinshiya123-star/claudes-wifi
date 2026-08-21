@@ -18,7 +18,8 @@ Python 3.11 字节码生成的两套反编译结果，其中部分文件存在�
 
 Android 版是独立实现的配置助手：在本机保存订阅和 ISP 信息，生成符合
 Mihomo/Clash Meta `dialer-proxy` 结构的 YAML，并通过仅监听 `127.0.0.1`
-的一次性服务和官方 `clashmeta://install-config` 深链完成一键导入。它不内置
+的一次性服务和官方 `clashmeta://install-config` 深链完成一键导入。Android
+v0.3.0 支持批量端口，并可自动识别 SOCKS5、HTTPS 和 HTTP。它不内置
 第三方代理内核，不会自行创建 Android VPN；目标客户端仍会要求用户确认添加。
 
 ## Release 产物
