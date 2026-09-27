@@ -65,16 +65,23 @@ KEYSTORE="${KEYSTORE:-$BUILD/debug.keystore}"
 OUTPUT="$BUILD/Claude网络配置助手-Android-debug.apk"
 SOURCES=(
   "$ROOT/app/src/main/java/com/jael/claudenet/ConfigBuilder.java"
+  "$ROOT/app/src/main/java/com/jael/claudenet/ProxyPortDetector.java"
+  "$ROOT/app/src/main/java/com/jael/claudenet/LocalConfigServer.java"
   "$ROOT/app/src/main/java/com/jael/claudenet/MainActivity.java"
 )
+# 不依赖 Android API 的类可以直接在 JVM 上测试
+TESTABLE_SOURCES=("${SOURCES[@]:0:3}")
+TESTS=(ConfigBuilderTest ProxyPortDetectorTest LocalConfigServerTest)
 
 rm -rf "$CLASSES" "$TEST_CLASSES" "$DEX"
 mkdir -p "$CLASSES" "$TEST_CLASSES" "$DEX"
 
 echo "==> 单元测试"
 javac -encoding UTF-8 -d "$TEST_CLASSES" \
-  "${SOURCES[0]}" "$ROOT/tests/com/jael/claudenet/ConfigBuilderTest.java"
-java -Dfile.encoding=UTF-8 -cp "$TEST_CLASSES" com.jael.claudenet.ConfigBuilderTest
+  "${TESTABLE_SOURCES[@]}" "$ROOT"/tests/com/jael/claudenet/*.java
+for test in "${TESTS[@]}"; do
+  java -Dfile.encoding=UTF-8 -cp "$TEST_CLASSES" "com.jael.claudenet.$test"
+done
 
 echo "==> 打包资源"
 # 源 Manifest 按 AGP 8 规范不写 package（由 Gradle namespace 提供），这里临时补上
@@ -86,8 +93,8 @@ sed "s#<manifest #<manifest package=\"$PACKAGE\" #" \
   --manifest "$BUILD/AndroidManifest.xml" \
   --min-sdk-version 26 \
   --target-sdk-version 34 \
-  --version-code 1 \
-  --version-name 0.1.0
+  --version-code 4 \
+  --version-name 0.3.1
 
 echo "==> 编译 Java"
 javac -encoding UTF-8 --release 8 \
