@@ -19,6 +19,8 @@
   - 全局模式：包括国内网站在内的全部流量都走住宅 IP；
   - 国外 UDP（QUIC/WebRTC）一律拒绝，浏览器自动改走 TCP，不会绕过住宅 IP 暴露真实 IP；
   - 走住宅出口的域名由 ISP 远端解析，不发给国内 DNS（防 DNS 泄露）；
+  - 开启域名嗅探：手机“私人 DNS”或 App 自己解析拿到被污染的 IP（如 google.com）时，
+    按 TLS/HTTP 里的真实域名转发，Google 等被污染的网站也能正常打开；
 - 通过本机一次性回环地址和官方 `clashmeta://install-config` 深链一键导入；
 - 将配置复制到剪贴板或通过系统文件选择器导出；
 - 打开 Clash Meta for Android 的发布页，供用户安装兼容客户端。
@@ -28,7 +30,7 @@ Clash Meta 客户端，用户仍需在客户端确认添加，并由客户端申
 
 ## 本地构建
 
-当前版本：`0.4.2`。要求：JDK 17、Android SDK Platform 34。
+当前版本：`0.4.3`。要求：JDK 17、Android SDK Platform 34。
 
 ```bash
 ./build-android.sh
