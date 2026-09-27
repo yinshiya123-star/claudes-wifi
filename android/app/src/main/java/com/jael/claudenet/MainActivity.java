@@ -1,12 +1,14 @@
 package com.jael.claudenet;
 
 import android.app.Activity;
+import android.content.ActivityNotFoundException;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Color;
+import android.graphics.Typeface;
 import android.net.Uri;
 import android.os.Bundle;
 import android.text.InputType;
@@ -59,7 +61,7 @@ public final class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         TextView title = text("Claude 网络配置助手", 27, Color.rgb(20, 45, 88));
-        title.setTypeface(null, 1);
+        title.setTypeface(null, Typeface.BOLD);
         root.addView(title);
         TextView byline = text("原项目作者：Jael · Android 本地配置版", 14,
                 Color.rgb(80, 95, 120));
@@ -117,7 +119,11 @@ public final class MainActivity extends Activity {
         Button client = button("打开兼容客户端发布页", Color.rgb(108, 75, 150));
         client.setOnClickListener(v -> {
             Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(CLIENT_RELEASES));
-            startActivity(intent);
+            try {
+                startActivity(intent);
+            } catch (ActivityNotFoundException error) {
+                showStatus("未找到可打开网页的浏览器：" + CLIENT_RELEASES, false);
+            }
         });
         root.addView(client, matchWrap(dp(9)));
 
@@ -138,7 +144,11 @@ public final class MainActivity extends Activity {
         intent.addCategory(Intent.CATEGORY_OPENABLE);
         intent.setType("application/x-yaml");
         intent.putExtra(Intent.EXTRA_TITLE, "claude-net-android.yaml");
-        startActivityForResult(intent, CREATE_CONFIG);
+        try {
+            startActivityForResult(intent, CREATE_CONFIG);
+        } catch (ActivityNotFoundException error) {
+            showStatus("系统没有可用的文件选择器，请改用“复制 YAML 到剪贴板”。", false);
+        }
     }
 
     private void copyConfig() {
@@ -147,6 +157,10 @@ public final class MainActivity extends Activity {
         save();
         ClipboardManager clipboard =
                 (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+        if (clipboard == null) {
+            showStatus("无法访问系统剪贴板。", false);
+            return;
+        }
         clipboard.setPrimaryClip(ClipData.newPlainText("claude-net.yaml", config));
         showStatus("✓ YAML 已复制。注意：剪贴板可能被输入法或其他应用读取。", true);
     }
@@ -155,15 +169,21 @@ public final class MainActivity extends Activity {
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode != CREATE_CONFIG || resultCode != RESULT_OK
-                || data == null || data.getData() == null || pendingConfig == null) {
+                || data == null || data.getData() == null) {
             return;
         }
+        // 选择文件期间 Activity 可能被系统重建，pendingConfig 会丢失；
+        // 表单已在导出前保存并于 onCreate 恢复，这里重新生成即可。
+        if (pendingConfig == null) pendingConfig = validateAndBuild();
+        if (pendingConfig == null) return;
         try (OutputStream output = getContentResolver().openOutputStream(data.getData())) {
             if (output == null) throw new IllegalStateException("无法打开目标文件");
             output.write(pendingConfig.getBytes(StandardCharsets.UTF_8));
             showStatus("✓ 配置已导出。请在兼容客户端中导入该 YAML。", true);
         } catch (Exception error) {
             showStatus("导出失败：" + error.getMessage(), false);
+        } finally {
+            pendingConfig = null;
         }
     }
 
@@ -175,7 +195,14 @@ public final class MainActivity extends Activity {
             showStatus("订阅地址必须以 https:// 或 http:// 开头。", false);
             return null;
         }
-        if (server.isEmpty() || server.contains(" ")) {
+        String user = username.getText().toString().trim();
+        String secret = password.getText().toString();
+        if (hasControlChar(url) || hasControlChar(user) || hasControlChar(secret)) {
+            showStatus("订阅地址、账号或密码中包含换行等非法字符。", false);
+            return null;
+        }
+        if (server.isEmpty() || server.contains(" ") || server.contains("/")
+                || hasControlChar(server)) {
             showStatus("请填写有效的 ISP IP 地址或域名。", false);
             return null;
         }
@@ -190,10 +217,15 @@ public final class MainActivity extends Activity {
             showStatus("ISP 端口范围必须是 1–65535。", false);
             return null;
         }
-        return ConfigBuilder.build(url, server, number,
-                username.getText().toString().trim(),
-                password.getText().toString(),
+        return ConfigBuilder.build(url, server, number, user, secret,
                 protocol.getSelectedItem().toString());
+    }
+
+    private static boolean hasControlChar(String value) {
+        for (int i = 0; i < value.length(); i++) {
+            if (Character.isISOControl(value.charAt(i))) return true;
+        }
+        return false;
     }
 
     private void save() {
@@ -214,7 +246,10 @@ public final class MainActivity extends Activity {
         port.setText(prefs.getString("port", ""));
         username.setText(prefs.getString("username", ""));
         password.setText(prefs.getString("password", ""));
-        protocol.setSelection(prefs.getInt("protocol", 0));
+        int savedProtocol = prefs.getInt("protocol", 0);
+        if (savedProtocol >= 0 && savedProtocol < protocol.getCount()) {
+            protocol.setSelection(savedProtocol);
+        }
     }
 
     private void showStatus(String message, boolean success) {
@@ -225,7 +260,7 @@ public final class MainActivity extends Activity {
 
     private TextView section(String label) {
         TextView view = text(label, 18, Color.rgb(20, 45, 88));
-        view.setTypeface(null, 1);
+        view.setTypeface(null, Typeface.BOLD);
         view.setPadding(0, dp(22), 0, dp(7));
         return view;
     }

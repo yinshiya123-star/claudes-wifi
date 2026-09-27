@@ -1,0 +1,32 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.jael.claudenet'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.jael.claudenet'
+        minSdk 26
+        targetSdk 34
+        versionCode 1
+        versionName '0.1.0'
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+        encoding 'UTF-8'
+    }
+
+    sourceSets {
+        test.java.srcDirs = ['../tests']
+    }
+}
