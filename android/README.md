@@ -12,8 +12,11 @@
   核对后一键填入；识别在手机本地完成（ML Kit 离线模型），图片和识别出的文字不会上传
   （ML Kit 可能向 Google 发送不含图片和文字的匿名使用统计）；
 - 一次输入多个端口，并自动识别 SOCKS5、HTTPS 或 HTTP 代理；
-- 生成 Mihomo/Clash Meta 可读取的链式代理 YAML：国外流量先经机场节点、再从美国住宅 IP 出去，国内直连；
-  机场订阅未就绪时拒绝连接，不会绕过机场直连住宅 IP；
+- 生成 Mihomo/Clash Meta 可读取的链式代理 YAML（与桌面版一致，住宅 IP 全局生效，不只是 Claude）：
+  - 规则模式：所有国外流量先经机场节点、再从美国住宅 IP 出去，国内网站直连；
+  - 全局模式：包括国内网站在内的全部流量都走住宅 IP；
+  - 国外 UDP（QUIC/WebRTC）一律拒绝，浏览器自动改走 TCP，不会绕过住宅 IP 暴露真实 IP；
+  - 走住宅出口的域名由 ISP 远端解析，不发给国内 DNS（防 DNS 泄露）；
 - 通过本机一次性回环地址和官方 `clashmeta://install-config` 深链一键导入；
 - 将配置复制到剪贴板或通过系统文件选择器导出；
 - 打开 Clash Meta for Android 的发布页，供用户安装兼容客户端。
@@ -23,7 +26,7 @@ Clash Meta 客户端，用户仍需在客户端确认添加，并由客户端申
 
 ## 本地构建
 
-当前版本：`0.4.0`。要求：JDK 17、Android SDK Platform 34。
+当前版本：`0.4.1`。要求：JDK 17、Android SDK Platform 34。
 
 ```bash
 ./build-android.sh

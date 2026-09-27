@@ -178,7 +178,8 @@ public final class MainActivity extends Activity {
         root.addView(client, matchWrap(dp(9)));
 
         status = text("点“一键导入”会打开 Clash Meta 的添加页面；确认添加并开启 VPN 后，"
-                + "国外流量会先经机场、再从美国住宅 IP 出去。连不上 Claude 时，"
+                + "所有国外流量（不只是 Claude）都会先经机场、再从美国住宅 IP 出去，国内网站直连；"
+                + "客户端切到“全局”模式则连国内网站也走住宅 IP。连不上时，"
                 + "到“Claude-前置节点”组里手动换一个机场节点。", 14,
                 Color.rgb(75, 82, 94));
         status.setPadding(dp(12), dp(13), dp(12), dp(13));
