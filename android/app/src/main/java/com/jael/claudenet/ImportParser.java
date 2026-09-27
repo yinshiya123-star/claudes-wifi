@@ -3,6 +3,8 @@ package com.jael.claudenet;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -63,6 +65,9 @@ final class ImportParser {
     // host port user pass（空格/Tab 分隔）
     private static final Pattern SPACE_FORM = Pattern.compile(
             "^(" + IPV4 + ")[ \\t]+(\\d{1,5})[ \\t]+(\\S+)[ \\t]+(\\S+)$");
+    // 只有 host:port（账号密码另起一行或另一列）
+    private static final Pattern HOST_PORT = Pattern.compile(
+            "(?<![\\w.:/@-])(" + HOST + "):(\\d{1,5})(?![\\w.:])");
     private static final Pattern IP_ONLY = Pattern.compile("(?<![\\w.])(" + IPV4 + ")(?![\\w.])");
     private static final Pattern URL = Pattern.compile("https?://[^\\s\"'<>，。；]+",
             Pattern.CASE_INSENSITIVE);
@@ -76,6 +81,14 @@ final class ImportParser {
     private static final Pattern LABELED = Pattern.compile(
             "^\\s*([A-Za-z0-9\\u4e00-\\u9fa5 _/()（）-]{1,24}?)\\s*[:：=]\\s*(.*?)\\s*$");
     private static final Pattern PORT_NUMBER = Pattern.compile("(?<!\\d)(\\d{2,5})(?!\\d)");
+    // 端口值旁边常见的日期、时间、流量/时长等数字，不能当成端口
+    private static final Pattern NOT_A_PORT = Pattern.compile(
+            "\\d{4}\\s*[-/.年]\\s*\\d{1,2}\\s*[-/.月]\\s*\\d{1,2}\\s*日?"
+                    + "|\\d{1,2}:\\d{2}(?::\\d{2})?"
+                    + "|\\d+(?:\\.\\d+)?\\s*(?:gb|mb|tb|kb|mbps|gbps|%|天|日|小时|个月|月|年"
+                    + "|days?|hours?|months?|years?|usd|美元|元)"
+                    + "|[$¥￥]\\s*\\d+(?:\\.\\d+)?",
+            Pattern.CASE_INSENSITIVE);
 
     private ImportParser() {}
 
@@ -182,6 +195,17 @@ final class ImportParser {
             Matcher space = SPACE_FORM.matcher(line);
             if (space.find() && validHost(space.group(1)) && validPort(space.group(2))) {
                 fill(result, space.group(1), space.group(2), space.group(3), space.group(4));
+                continue;
+            }
+            if (!line.contains("://")) {
+                // 单独的 ip:端口（账号密码在别处），链接里的 host:port 不算
+                Matcher hostPort = HOST_PORT.matcher(line);
+                while (hostPort.find()) {
+                    if (validHost(hostPort.group(1)) && validPort(hostPort.group(2))) {
+                        if (result.host == null) result.host = hostPort.group(1);
+                        if (hostPort.group(1).equals(result.host)) addPort(result, hostPort.group(2));
+                    }
+                }
             }
         }
         parseLabeled(lines, result);
@@ -196,35 +220,76 @@ final class ImportParser {
         }
     }
 
+    // “IP:Port”“IP/端口”这类合并标签，值通常是 host:port
+    private static final Pattern HOST_PORT_LABEL = Pattern.compile(
+            "^\\s*(?:ip|host|server|proxy|代理|地址|服务器)\\s*[:/]\\s*(?:port|端口)\\s*[:：=]?\\s*(.*)$",
+            Pattern.CASE_INSENSITIVE);
+
+    // “Login:Password”“账号/密码”这类合并标签，值通常是 user:pass
+    private static final Pattern USER_PASS_LABEL = Pattern.compile(
+            "^\\s*(?:login|user|username|账号|帐号|用户名)\\s*[:/]\\s*(?:password|pass|密码)"
+                    + "\\s*[:：=]?\\s*(.*)$",
+            Pattern.CASE_INSENSITIVE);
+
     private static void parseLabeled(List<String> lines, Result result) {
+        // 先认有冒号/分行的明确标签，再用“标签 值”补漏，避免正文里的 “User guide” 抢先
+        parseLabeled(lines, result, false);
+        parseLabeled(lines, result, true);
+    }
+
+    private static void parseLabeled(List<String> lines, Result result, boolean spacedOnly) {
         for (int i = 0; i < lines.size(); i++) {
-            Matcher m = LABELED.matcher(lines.get(i));
-            String label;
+            String line = lines.get(i);
+            String kind;
             String value;
-            if (m.matches()) {
-                label = m.group(1);
+            Matcher hostPortLabel = HOST_PORT_LABEL.matcher(line);
+            Matcher userPassLabel = USER_PASS_LABEL.matcher(line);
+            Matcher m = LABELED.matcher(line);
+            String[] spaced;
+            if (spacedOnly) {
+                if (hostPortLabel.matches() || userPassLabel.matches()
+                        || m.matches() && labelKind(m.group(1)) != null
+                        || (spaced = splitSpacedLabel(line)) == null
+                        || !fieldEmpty(result, spaced[0])) {
+                    continue;
+                }
+                // OCR 常丢掉冒号：“Port 50101”“Login demo”
+                kind = spaced[0];
+                value = spaced[1];
+            } else if (hostPortLabel.matches()) {
+                kind = "host";
+                value = hostPortLabel.group(1);
+            } else if (userPassLabel.matches()) {
+                kind = "userpass";
+                value = userPassLabel.group(1);
+            } else if (m.matches() && labelKind(m.group(1)) != null) {
+                kind = labelKind(m.group(1));
                 value = m.group(2);
-            } else if (labelKind(lines.get(i)) != null && i + 1 < lines.size()) {
+            } else if (isLabelOnly(line) && i + 1 < lines.size()) {
                 // OCR 常把“标签”和“值”拆成两行
-                label = lines.get(i);
+                kind = labelKind(line);
                 value = "";
             } else {
                 continue;
             }
-            String kind = labelKind(label);
-            if (kind == null) continue;
-            if (value.isEmpty() && i + 1 < lines.size() && labelKind(lines.get(i + 1)) == null) {
+            if (value.isEmpty() && i + 1 < lines.size() && !isLabelOnly(lines.get(i + 1))) {
                 value = lines.get(++i).trim();
             }
             value = unquote(value);
             if (value.isEmpty()) continue;
             switch (kind) {
                 case "host":
-                    String host = value.split("[\\s:]")[0];
-                    if (result.host == null && validHost(host)) result.host = host;
+                    Matcher hostPort = HOST_PORT.matcher(value);
+                    if (hostPort.find() && validHost(hostPort.group(1))) {
+                        if (result.host == null) result.host = hostPort.group(1);
+                        addPort(result, hostPort.group(2));
+                    } else {
+                        String host = value.split("[\\s:/]")[0];
+                        if (result.host == null && validHost(host)) result.host = host;
+                    }
                     break;
                 case "port":
-                    Matcher p = PORT_NUMBER.matcher(fixDigits(value));
+                    Matcher p = PORT_NUMBER.matcher(NOT_A_PORT.matcher(fixDigits(value)).replaceAll(" "));
                     while (p.find()) addPort(result, p.group(1));
                     break;
                 case "user":
@@ -233,26 +298,88 @@ final class ImportParser {
                 case "pass":
                     if (result.password == null) result.password = value.split("\\s")[0];
                     break;
+                case "userpass":
+                    // “Login:Password  demo:s3cret”
+                    String[] pair = value.split("\\s")[0].split(":", 2);
+                    if (pair.length == 2) {
+                        if (result.username == null) result.username = pair[0];
+                        if (result.password == null) result.password = pair[1];
+                    }
+                    break;
                 default:
                     break;
             }
         }
     }
 
-    /** 返回 host/port/user/pass，或 null。 */
+    private static boolean fieldEmpty(Result result, String kind) {
+        switch (kind) {
+            case "host":
+                return result.host == null;
+            case "port":
+                return result.ports.isEmpty();
+            case "user":
+                return result.username == null;
+            case "pass":
+                return result.password == null;
+            case "userpass":
+                return result.username == null || result.password == null;
+            default:
+                return false;
+        }
+    }
+
+    private static final Set<String> LABEL_WORDS = new HashSet<>(Arrays.asList(
+            "ip", "address", "addr", "host", "hostname", "server", "proxy", "port", "http", "https",
+            "s", "socks", "socks5", "login", "user", "username", "name", "password", "pass", "passwd",
+            "pwd", "ip地址", "地址", "服务器", "主机", "代理", "代理地址", "代理ip", "代理服务器", "端口",
+            "端口号", "账号", "帐号", "账户", "用户", "用户名", "密码"));
+
+    /** 整行只由标签词组成（如 “IP address”“HTTP(S)/SOCKS5 port”），值在下一行。 */
+    private static boolean isLabelOnly(String line) {
+        if (labelKind(line) == null) return false;
+        String cleaned = line.trim().toLowerCase(Locale.ROOT).replaceAll("[:：=]$", "");
+        for (String word : cleaned.split("[\\s/()（）]+")) {
+            if (!word.isEmpty() && !LABEL_WORDS.contains(word)) return false;
+        }
+        return true;
+    }
+
+    /** “标签 值”（无冒号）：取最长的、能识别为标签的前 1–3 个词。 */
+    private static String[] splitSpacedLabel(String line) {
+        String[] words = line.trim().split("\\s+");
+        for (int n = Math.min(3, words.length - 1); n >= 1; n--) {
+            StringBuilder label = new StringBuilder(words[0]);
+            for (int k = 1; k < n; k++) label.append(' ').append(words[k]);
+            String kind = labelKind(label.toString());
+            if (kind == null) continue;
+            StringBuilder value = new StringBuilder(words[n]);
+            for (int k = n + 1; k < words.length; k++) value.append(' ').append(words[k]);
+            return new String[]{kind, value.toString()};
+        }
+        return null;
+    }
+
+    /** 返回 host/port/user/pass/userpass，或 null。 */
     static String labelKind(String rawLabel) {
         String label = rawLabel.trim().toLowerCase(Locale.ROOT)
                 .replaceAll("[:：=]$", "").trim();
-        if (label.isEmpty() || label.length() > 24) return null;
-        if (label.matches("(ip|ip address|ip地址|ip 地址|host|hostname|server|服务器|主机|地址|代理地址|代理ip)")) {
-            return "host";
-        }
-        if (label.matches("((http|https|socks5?|socks)\\s*)?(port|端口)(\\s*\\((http|https|socks5?)\\))?"
-                + "|端口号|(http|https|socks5?)\\s*端口")) {
-            return "port";
-        }
-        if (label.matches("(login|user|username|user name|用户名|账号|帐号|账户|用户)")) return "user";
-        if (label.matches("(password|pass|passwd|pwd|密码)")) return "pass";
+        if (label.isEmpty() || label.length() > 30) return null;
+        // 标签里不会有数字（socks5 除外），带数字的是值
+        if (label.replace("socks5", "socks").matches(".*\\d.*")) return null;
+        boolean port = label.matches(".*(^|[^a-z])port([^a-z]|$).*") || label.contains("端口");
+        boolean host = label.matches("(ip|ip address|ip addr|ip地址|ip 地址|host|hostname|server"
+                + "|服务器|主机|地址|代理地址|代理ip|proxy|proxy ip|代理服务器)")
+                || port && label.matches(".*(^|[^a-z])(ip|host|server)([^a-z]|$).*");
+        boolean user = label.matches(".*(^|[^a-z])(login|user|username|user name)([^a-z]|$).*")
+                || label.matches(".*(用户名|账号|帐号|账户).*") || label.equals("用户");
+        boolean pass = label.matches(".*(^|[^a-z])(password|passwd|pass|pwd)([^a-z]|$).*")
+                || label.contains("密码");
+        if (host) return "host";
+        if (user && pass) return "userpass";
+        if (port) return "port";
+        if (user) return "user";
+        if (pass) return "pass";
         return null;
     }
 

@@ -43,6 +43,36 @@ public final class ImportParserTest {
         r = ImportParser.parse(NO_QR, "203.0.113.7\t50101 demo s3cret");
         isp(r, "203.0.113.7", Arrays.asList(50101), "demo", "s3cret");
 
+        // ---- 单端口的常见截图形态 ----
+        // 面板表头 “HTTP(S)/SOCKS5 port”，OCR 按列输出
+        r = ImportParser.parse(NO_QR, "IP address\n203.0.113.7\nHTTP(S)/SOCKS5 port\n50101\n"
+                + "Login\ndemo\nPassword\ns3cret");
+        isp(r, "203.0.113.7", Arrays.asList(50101), "demo", "s3cret");
+        // 单独一行 ip:端口，账号密码另起
+        r = ImportParser.parse(NO_QR, "203.0.113.7:50101\nLogin: demo\nPassword: s3cret");
+        isp(r, "203.0.113.7", Arrays.asList(50101), "demo", "s3cret");
+        // 合并标签 “IP:Port”
+        r = ImportParser.parse(NO_QR, "IP:Port: 203.0.113.7:50101\nLogin: demo\nPassword: s3cret");
+        isp(r, "203.0.113.7", Arrays.asList(50101), "demo", "s3cret");
+        // OCR 丢了冒号
+        r = ImportParser.parse(NO_QR, "IP 203.0.113.7\nPort 50101\nLogin demo\nPassword s3cret");
+        isp(r, "203.0.113.7", Arrays.asList(50101), "demo", "s3cret");
+        // 端口旁边的日期、时长不能当端口
+        r = ImportParser.parse(NO_QR, "IP: 203.0.113.7\nPort: 50101 (valid until 2026-10-27, 30 days)\n"
+                + "Login: demo\nPassword: s3cret");
+        isp(r, "203.0.113.7", Arrays.asList(50101), "demo", "s3cret");
+        // “Login:Password” 合并列
+        r = ImportParser.parse(NO_QR, "IP: 203.0.113.7\nPort: 50101\nLogin:Password: demo:s3cret");
+        isp(r, "203.0.113.7", Arrays.asList(50101), "demo", "s3cret");
+        // 正文里的 “User guide” 不能抢在明确标签前面
+        r = ImportParser.parse(NO_QR, "User guide\nIP: 203.0.113.7\nPort: 50101\n"
+                + "Username: demo\nPassword: s3cret");
+        isp(r, "203.0.113.7", Arrays.asList(50101), "demo", "s3cret");
+        // 订阅链接里的 host:port 不能当成 ISP
+        r = ImportParser.parse(NO_QR,
+                "https://sub.example.com:8443/api/v1/client/subscribe?token=abc123");
+        require(r.host == null && r.ports.isEmpty(), "订阅链接里的端口");
+
         // 端口有标签、IP 没标签时取唯一 IPv4
         r = ImportParser.parse(NO_QR, "Your proxy 203.0.113.7 is active\nPort: 50101");
         require("203.0.113.7".equals(r.host), "未标注的 IP");
