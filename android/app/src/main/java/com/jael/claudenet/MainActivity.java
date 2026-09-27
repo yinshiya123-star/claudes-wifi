@@ -290,7 +290,9 @@ public final class MainActivity extends Activity {
             message.append("住宅 ISP：\n");
             if (result.host != null) message.append("地址：").append(result.host).append('\n');
             if (!result.ports.isEmpty()) {
-                message.append("端口：").append(joinPorts(result.ports)).append('\n');
+                message.append("端口：").append(joinPorts(result.ports));
+                if (result.protocol != null) message.append("（").append(result.protocol).append("）");
+                message.append('\n');
             }
             if (result.username != null) {
                 message.append("账号：").append(result.username).append('\n');
@@ -310,6 +312,10 @@ public final class MainActivity extends Activity {
                 if (result.subscriptionUrl != null) subscription.setText(result.subscriptionUrl);
                 if (result.host != null) host.setText(result.host);
                 if (!result.ports.isEmpty()) port.setText(joinPorts(result.ports));
+                // 截图写明了端口类型就直接选上，不用再检测（下拉框：0 自动、1 SOCKS5、2 HTTPS、3 HTTP）
+                if ("SOCKS5".equals(result.protocol)) protocol.setSelection(1);
+                if ("HTTPS".equals(result.protocol)) protocol.setSelection(2);
+                if ("HTTP".equals(result.protocol)) protocol.setSelection(3);
                 if (result.username != null) username.setText(result.username);
                 if (result.password != null) password.setText(result.password);
                 showStatus("✓ 已填入识别结果，请核对后再导入。", true);
@@ -468,18 +474,26 @@ public final class MainActivity extends Activity {
                     result.append(endpoint.port).append(" → ").append(endpoint.protocol.name());
                     if (endpoint.protocol == ProxyPortDetector.Protocol.UNKNOWN) anyUnknown = true;
                 }
-                boolean guessed = anyUnknown;
+                boolean unknown = anyUnknown;
                 runOnUiThread(() -> {
                     // 检测需要数秒，期间用户可能已离开页面
                     if (isFinishing() || isDestroyed()) return;
-                    // 手机直连美国住宅 IP 常被阻断，检测不到不代表不可用：
-                    // 未识别的端口同时生成 SOCKS5/HTTP 节点，经机场连通后由客户端自动选用
-                    showStatus(guessed
-                            ? "检测结果：" + result + "。未识别的端口多半是手机直连不到住宅 IP，"
-                                    + "已同时按 SOCKS5 和 HTTP 生成，连上机场后客户端会自动选用能通的那个。"
-                            : "检测结果：" + result, true);
-                    action.run(ConfigBuilder.build(input.url, input.host, detected,
-                            input.username, input.password));
+                    if (!unknown) {
+                        showStatus("检测结果：" + result, true);
+                        action.run(ConfigBuilder.build(input.url, input.host, detected,
+                                input.username, input.password));
+                        return;
+                    }
+                    askProtocol(result.toString(), chosen -> {
+                        List<ProxyPortDetector.Endpoint> endpoints = new ArrayList<>();
+                        for (ProxyPortDetector.Endpoint endpoint : detected) {
+                            endpoints.add(endpoint.protocol == ProxyPortDetector.Protocol.UNKNOWN
+                                    ? new ProxyPortDetector.Endpoint(endpoint.port, chosen)
+                                    : endpoint);
+                        }
+                        action.run(ConfigBuilder.build(input.url, input.host, endpoints,
+                                input.username, input.password));
+                    });
                 });
             } catch (Exception error) {
                 runOnUiThread(() -> {
@@ -488,6 +502,38 @@ public final class MainActivity extends Activity {
                 });
             }
         }, "proxy-port-detector").start();
+    }
+
+    /**
+     * 手机直连美国住宅 IP 在国内通常被阻断，检测不出协议时让用户选，只生成一个节点。
+     * 选择会记住（下拉框改为该协议），之后不再重复检测。
+     */
+    private void askProtocol(String result, ProtocolChoice choice) {
+        new AlertDialog.Builder(this)
+                .setTitle("检测不到端口协议")
+                .setMessage("检测结果：" + result + "\n\n"
+                        + "手机直连美国住宅 IP 通常会被阻断。两种办法：\n"
+                        + "1. 先在 Clash Meta 里连上机场（开启 VPN），再回来点“检测所有端口协议”，"
+                        + "检测会经机场进行；\n"
+                        + "2. 直接选择端口类型（看 ISP 购买页写的是 SOCKS5 还是 HTTP）。")
+                .setPositiveButton("SOCKS5（推荐）", (d, w) -> {
+                    protocol.setSelection(1);
+                    save();
+                    choice.onChosen(ProxyPortDetector.Protocol.SOCKS5);
+                })
+                .setNeutralButton("HTTP", (d, w) -> {
+                    protocol.setSelection(3);
+                    save();
+                    choice.onChosen(ProxyPortDetector.Protocol.HTTP);
+                })
+                .setNegativeButton("取消", (d, w) ->
+                        showStatus("已取消。连上机场后可重新检测，或在下拉框里手动选择协议。", false))
+                .show();
+        showStatus("检测结果：" + result + "。请在弹窗中选择端口类型。", false);
+    }
+
+    private interface ProtocolChoice {
+        void onChosen(ProxyPortDetector.Protocol protocol);
     }
 
     private interface ConfigAction {

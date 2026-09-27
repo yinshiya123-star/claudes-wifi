@@ -61,10 +61,25 @@ public final class ConfigBuilderTest {
                 "https://example.com/sub", "203.0.113.7",
                 Arrays.asList(new ProxyPortDetector.Endpoint(
                         50101, ProxyPortDetector.Protocol.UNKNOWN)), "u", "p");
+        // 一个端口只生成一个节点（未知协议按 SOCKS5），不再出现第二个节点
         require(unknown.contains("name: Claude-住宅ISP-SOCKS5-50101\n    type: socks5"));
-        require(unknown.contains("name: Claude-住宅ISP-HTTP-50101\n    type: http"));
+        require(!unknown.contains("Claude-住宅ISP-HTTP-50101"));
         require(!unknown.contains("UNKNOWN"));
-        require(count(unknown, "dialer-proxy: Claude-前置节点") == 2);
+        require(count(unknown, "dialer-proxy: Claude-前置节点") == 1);
+        // 单端口时不需要 fallback 组，出口组里只有这一个节点
+        require(!unknown.contains("type: fallback"));
+        require(unknown.contains("  - name: 住宅ISP-全局出口\n    type: select\n    proxies:\n"
+                + "      - Claude-住宅ISP-SOCKS5-50101\n  - name: GLOBAL"));
+        // 连住宅 ISP 服务器本身（App 检测端口）走机场，排在所有规则最前面
+        require(unknown.contains("rules:\n  - IP-CIDR,203.0.113.7/32,Claude-前置节点,no-resolve\n"));
+        // 机场节点主动测速
+        require(unknown.contains("interval: 300\n      lazy: false"));
+        require(unknown.contains("tolerance: 50\n    lazy: false"));
+
+        String domainHost = ConfigBuilder.build("https://example.com/sub", "isp.example.com",
+                Arrays.asList(new ProxyPortDetector.Endpoint(
+                        50101, ProxyPortDetector.Protocol.HTTP)), "u", "p");
+        require(domainHost.contains("rules:\n  - DOMAIN,isp.example.com,Claude-前置节点\n"));
         System.out.println("ConfigBuilderTest: PASS");
     }
 

@@ -33,7 +33,7 @@ final class ConfigBuilder {
             List<ProxyPortDetector.Endpoint> endpoints,
             String username,
             String password) {
-        List<ProxyPortDetector.Endpoint> nodes = expandUnknown(endpoints);
+        List<ProxyPortDetector.Endpoint> nodes = oneNodePerPort(endpoints);
         StringBuilder yaml = new StringBuilder();
         yaml.append("# Claude 网络配置助手生成\n");
         yaml.append("# 原项目作者：Jael；Android 移植辅助版\n");
@@ -58,7 +58,9 @@ final class ConfigBuilder {
         yaml.append("    health-check:\n");
         yaml.append("      enable: true\n");
         yaml.append("      url: ").append(HEALTH_URL).append("\n");
-        yaml.append("      interval: 300\n\n");
+        yaml.append("      interval: 300\n");
+        // 主动测速，客户端里能直接看到机场节点延迟
+        yaml.append("      lazy: false\n\n");
 
         yaml.append("proxies:\n");
         for (ProxyPortDetector.Endpoint endpoint : nodes) {
@@ -101,25 +103,30 @@ final class ConfigBuilder {
         yaml.append("    url: ").append(HEALTH_URL).append("\n");
         yaml.append("    interval: 300\n");
         yaml.append("    tolerance: 50\n");
-        // 健康检查走完整链路，自动跳过协议或端口不通的 ISP 节点
-        yaml.append("  - name: ").append(ISP_GROUP).append("\n");
-        yaml.append("    type: fallback\n");
-        yaml.append("    proxies:\n");
-        for (ProxyPortDetector.Endpoint endpoint : nodes) {
-            yaml.append("      - ").append(proxyName(endpoint)).append("\n");
-        }
-        yaml.append("    url: ").append(HEALTH_URL).append("\n");
-        // 启动时订阅未就绪，首次检查会全部失败；缩短间隔并在连续失败后立即复查
-        yaml.append("    interval: 60\n");
-        yaml.append("    timeout: 10000\n");
         yaml.append("    lazy: false\n");
-        yaml.append("    max-failed-times: 1\n");
+        boolean multiplePorts = nodes.size() > 1;
+        if (multiplePorts) {
+            // 多个端口时健康检查走完整链路，自动跳过不通的端口
+            yaml.append("  - name: ").append(ISP_GROUP).append("\n");
+            yaml.append("    type: fallback\n");
+            yaml.append("    proxies:\n");
+            for (ProxyPortDetector.Endpoint endpoint : nodes) {
+                yaml.append("      - ").append(proxyName(endpoint)).append("\n");
+            }
+            yaml.append("    url: ").append(HEALTH_URL).append("\n");
+            yaml.append("    interval: 60\n");
+            yaml.append("    timeout: 10000\n");
+            yaml.append("    lazy: false\n");
+            yaml.append("    max-failed-times: 1\n");
+        }
+        // 出口组：单个端口时只有这一个住宅节点
         yaml.append("  - name: ").append(EXIT_GROUP).append("\n");
         yaml.append("    type: select\n");
         yaml.append("    proxies:\n");
-        yaml.append("      - ").append(ISP_GROUP).append("\n");
-        for (ProxyPortDetector.Endpoint endpoint : nodes) {
-            yaml.append("      - ").append(proxyName(endpoint)).append("\n");
+        if (multiplePorts) {
+            yaml.append("      - ").append(ISP_GROUP).append("\n");
+        } else {
+            yaml.append("      - ").append(proxyName(nodes.get(0))).append("\n");
         }
         // 客户端切到“全局”模式时 Mihomo 用 GLOBAL 组；不自定义的话默认是 DIRECT，
         // 全部流量既不过机场也不过住宅 ISP。这里让全局模式也默认走住宅出口。
@@ -154,6 +161,14 @@ final class ConfigBuilder {
         yaml.append("    - https://doh.pub/dns-query\n\n");
 
         yaml.append("rules:\n");
+        // 连住宅 ISP 服务器本身的流量（例如本 App 检测端口协议）走机场：
+        // 国内直连住宅 IP 通常被阻断，走住宅出口则会绕回自己
+        if (host.matches("(?:\\d{1,3}\\.){3}\\d{1,3}")) {
+            yaml.append("  - IP-CIDR,").append(host).append("/32,").append(FRONT_GROUP)
+                    .append(",no-resolve\n");
+        } else {
+            yaml.append("  - DOMAIN,").append(host).append(",").append(FRONT_GROUP).append("\n");
+        }
         yaml.append("  - DOMAIN-SUFFIX,claude.ai,").append(EXIT_GROUP).append("\n");
         yaml.append("  - DOMAIN-SUFFIX,anthropic.com,").append(EXIT_GROUP).append("\n");
         yaml.append("  - DOMAIN-SUFFIX,claudeusercontent.com,").append(EXIT_GROUP).append("\n");
@@ -179,19 +194,20 @@ final class ConfigBuilder {
         return yaml.toString();
     }
 
-    /** 协议未识别的端口同时生成 SOCKS5 与 HTTP 两个节点，由 fallback 组按实际连通性选择。 */
-    static List<ProxyPortDetector.Endpoint> expandUnknown(
+    /**
+     * 每个端口只生成一个节点。协议未识别时界面会先让用户选择；
+     * 万一仍是未知，按 SOCKS5 处理（桌面版实测可用的住宅 ISP 都是 SOCKS5 口）。
+     */
+    static List<ProxyPortDetector.Endpoint> oneNodePerPort(
             List<ProxyPortDetector.Endpoint> endpoints) {
         List<ProxyPortDetector.Endpoint> nodes = new ArrayList<>();
+        List<Integer> seen = new ArrayList<>();
         for (ProxyPortDetector.Endpoint endpoint : endpoints) {
-            if (endpoint.protocol == ProxyPortDetector.Protocol.UNKNOWN) {
-                nodes.add(new ProxyPortDetector.Endpoint(
-                        endpoint.port, ProxyPortDetector.Protocol.SOCKS5));
-                nodes.add(new ProxyPortDetector.Endpoint(
-                        endpoint.port, ProxyPortDetector.Protocol.HTTP));
-            } else {
-                nodes.add(endpoint);
-            }
+            if (seen.contains(endpoint.port)) continue;
+            seen.add(endpoint.port);
+            nodes.add(endpoint.protocol == ProxyPortDetector.Protocol.UNKNOWN
+                    ? new ProxyPortDetector.Endpoint(endpoint.port, ProxyPortDetector.Protocol.SOCKS5)
+                    : endpoint);
         }
         return nodes;
     }

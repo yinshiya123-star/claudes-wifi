@@ -39,7 +39,7 @@ final class ProxyPortDetector {
         }
     }
 
-    private static final int TIMEOUT_MS = 3500;
+    private static final int TIMEOUT_MS = 6000;
 
     private ProxyPortDetector() {}
 
