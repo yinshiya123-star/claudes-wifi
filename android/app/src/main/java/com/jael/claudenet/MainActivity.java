@@ -116,8 +116,14 @@ public final class MainActivity extends Activity {
         root.addView(protocol, matchWrap(dp(9)));
 
         Button detect = button("检测所有端口协议", Color.rgb(108, 75, 150));
-        detect.setOnClickListener(v -> withConfig(config ->
-                showStatus("✓ 检测完成，所有已识别端口都会加入配置。", true)));
+        detect.setOnClickListener(v -> {
+            if (protocol.getSelectedItemPosition() != 0) {
+                showStatus("已手动指定协议，无需检测。", true);
+                return;
+            }
+            // 检测结果由 withConfig 显示
+            withConfig(config -> {});
+        });
         root.addView(detect, matchWrap(dp(16)));
 
         Button save = button("保存到本机", Color.rgb(72, 92, 122));
@@ -145,8 +151,9 @@ public final class MainActivity extends Activity {
         client.setOnClickListener(v -> openClientReleases());
         root.addView(client, matchWrap(dp(9)));
 
-        status = text("点“一键导入”会直接打开 Clash Meta 的添加页面；确认添加后，"
-                + "选择“Claude-前置节点”，再开启客户端 VPN。", 14,
+        status = text("点“一键导入”会打开 Clash Meta 的添加页面；确认添加并开启 VPN 后，"
+                + "国外流量会先经机场、再从美国住宅 IP 出去。连不上 Claude 时，"
+                + "到“Claude-前置节点”组里手动换一个机场节点。", 14,
                 Color.rgb(75, 82, 94));
         status.setPadding(dp(12), dp(13), dp(12), dp(13));
         status.setBackgroundColor(Color.WHITE);
@@ -305,23 +312,24 @@ public final class MainActivity extends Activity {
             try {
                 List<ProxyPortDetector.Endpoint> detected = ProxyPortDetector.detectAll(
                         input.host, input.ports, input.username, input.password);
-                List<ProxyPortDetector.Endpoint> known = new ArrayList<>();
+                boolean anyUnknown = false;
                 StringBuilder result = new StringBuilder();
                 for (ProxyPortDetector.Endpoint endpoint : detected) {
                     if (result.length() > 0) result.append("；");
                     result.append(endpoint.port).append(" → ").append(endpoint.protocol.name());
-                    if (endpoint.protocol != ProxyPortDetector.Protocol.UNKNOWN) known.add(endpoint);
+                    if (endpoint.protocol == ProxyPortDetector.Protocol.UNKNOWN) anyUnknown = true;
                 }
+                boolean guessed = anyUnknown;
                 runOnUiThread(() -> {
                     // 检测需要数秒，期间用户可能已离开页面
                     if (isFinishing() || isDestroyed()) return;
-                    if (known.isEmpty()) {
-                        showStatus("未识别到可用协议（" + result
-                                + "）。请检查网络/账号，或在下拉框手动选择协议。", false);
-                        return;
-                    }
-                    showStatus("检测结果：" + result, true);
-                    action.run(ConfigBuilder.build(input.url, input.host, known,
+                    // 手机直连美国住宅 IP 常被阻断，检测不到不代表不可用：
+                    // 未识别的端口同时生成 SOCKS5/HTTP 节点，经机场连通后由客户端自动选用
+                    showStatus(guessed
+                            ? "检测结果：" + result + "。未识别的端口多半是手机直连不到住宅 IP，"
+                                    + "已同时按 SOCKS5 和 HTTP 生成，连上机场后客户端会自动选用能通的那个。"
+                            : "检测结果：" + result, true);
+                    action.run(ConfigBuilder.build(input.url, input.host, detected,
                             input.username, input.password));
                 });
             } catch (Exception error) {

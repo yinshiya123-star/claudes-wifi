@@ -30,7 +30,38 @@ public final class ConfigBuilderTest {
         require(noAuth.contains("type: http"));
         require(!noAuth.contains("username:"));
         require(!noAuth.contains("password:"));
+
+        // 链式：国外流量走住宅出口，国内直连；DNS 不能用国内无法直连的 1.1.1.1/8.8.8.8
+        require(yaml.contains("  - MATCH,Claude-专用出口\n"));
+        require(yaml.contains("  - GEOIP,CN,DIRECT\n"));
+        require(!yaml.contains("MATCH,DIRECT"));
+        require(!yaml.contains("1.1.1.1") && !yaml.contains("8.8.8.8"));
+        require(yaml.contains("default-nameserver:\n    - 223.5.5.5"));
+        // 前置组默认自动测速，并排除机场信息节点
+        require(yaml.contains("name: Claude-前置节点\n    type: select\n    proxies:\n"
+                + "      - Claude-前置-自动测速\n    use:\n      - airport"));
+        require(yaml.contains("exclude-filter: '(?i)剩余"));
+        require(yaml.contains("name: Claude-住宅ISP\n    type: fallback"));
+        // 订阅未就绪时宁可拒绝，也不能让 ISP 连接绕过机场直连
+        require(yaml.contains("type: url-test\n    proxies:\n      - REJECT\n    use:\n      - airport"));
+        require(yaml.contains("interval: 60\n    lazy: false\n    max-failed-times: 1"));
+
+        // 协议未识别的端口同时生成 SOCKS5 和 HTTP 节点，且都经机场拨号
+        String unknown = ConfigBuilder.build(
+                "https://example.com/sub", "203.0.113.7",
+                Arrays.asList(new ProxyPortDetector.Endpoint(
+                        50101, ProxyPortDetector.Protocol.UNKNOWN)), "u", "p");
+        require(unknown.contains("name: Claude-住宅ISP-SOCKS5-50101\n    type: socks5"));
+        require(unknown.contains("name: Claude-住宅ISP-HTTP-50101\n    type: http"));
+        require(!unknown.contains("UNKNOWN"));
+        require(count(unknown, "dialer-proxy: Claude-前置节点") == 2);
         System.out.println("ConfigBuilderTest: PASS");
+    }
+
+    private static int count(String text, String needle) {
+        int count = 0;
+        for (int i = text.indexOf(needle); i >= 0; i = text.indexOf(needle, i + 1)) count++;
+        return count;
     }
 
     private static void require(boolean condition) {

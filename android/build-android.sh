@@ -93,8 +93,8 @@ sed "s#<manifest #<manifest package=\"$PACKAGE\" #" \
   --manifest "$BUILD/AndroidManifest.xml" \
   --min-sdk-version 26 \
   --target-sdk-version 34 \
-  --version-code 4 \
-  --version-name 0.3.1
+  --version-code 5 \
+  --version-name 0.3.2
 
 echo "==> 编译 Java"
 javac -encoding UTF-8 --release 8 \
