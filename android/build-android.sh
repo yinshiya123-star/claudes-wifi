@@ -1,47 +1,109 @@
 #!/bin/bash
+# 不依赖 Gradle 的最小构建：aapt2 → javac → d8 → zipalign → apksigner。
+# 支持 macOS / Linux / Windows（Git Bash）。
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-DEFAULT_SDK="/Users/zanderli/Library/Android/sdk"
-if [ -d "/opt/homebrew/share/android-commandlinetools/platforms" ]; then
-  DEFAULT_SDK="/opt/homebrew/share/android-commandlinetools"
+PACKAGE="com.jael.claudenet"
+BUILD_TOOLS_VERSION="${BUILD_TOOLS_VERSION:-34.0.0}"
+PLATFORM="${ANDROID_PLATFORM:-android-34}"
+
+find_sdk() {
+  local candidate
+  for candidate in \
+      "${ANDROID_SDK_ROOT:-}" \
+      "${ANDROID_HOME:-}" \
+      "$HOME/Library/Android/sdk" \
+      "/opt/homebrew/share/android-commandlinetools" \
+      "$HOME/Android/Sdk" \
+      "${LOCALAPPDATA:-}/Android/Sdk"; do
+    if [ -n "$candidate" ] && [ -d "$candidate/platforms/$PLATFORM" ]; then
+      echo "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+SDK_ROOT="$(find_sdk)" || {
+  echo "找不到 Android SDK（需要 $PLATFORM 与 Build Tools $BUILD_TOOLS_VERSION），请设置 ANDROID_SDK_ROOT" >&2
+  exit 1
+}
+BUILD_TOOLS="$SDK_ROOT/build-tools/$BUILD_TOOLS_VERSION"
+ANDROID_JAR="$SDK_ROOT/platforms/$PLATFORM/android.jar"
+
+# Windows 上 d8/apksigner 是 .bat，其余工具是 .exe
+tool() {
+  local name="$1" ext
+  for ext in "" ".exe" ".bat"; do
+    if [ -f "$BUILD_TOOLS/$name$ext" ]; then
+      echo "$BUILD_TOOLS/$name$ext"
+      return 0
+    fi
+  done
+  echo "缺少 Build Tools 组件：$BUILD_TOOLS/$name" >&2
+  return 1
+}
+AAPT="$(tool aapt)"
+AAPT2="$(tool aapt2)"
+D8="$(tool d8)"
+ZIPALIGN="$(tool zipalign)"
+APKSIGNER="$(tool apksigner)"
+
+if [ -n "${JAVA_HOME:-}" ]; then
+  export PATH="$JAVA_HOME/bin:$PATH"
 fi
-SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-$DEFAULT_SDK}}"
-BUILD_TOOLS="$SDK_ROOT/build-tools/34.0.0"
-ANDROID_JAR="$SDK_ROOT/platforms/android-34/android.jar"
+for cmd in java javac jar keytool; do
+  command -v "$cmd" >/dev/null || { echo "找不到 $cmd，请安装 JDK 17 或设置 JAVA_HOME" >&2; exit 1; }
+done
+
 BUILD="$ROOT/build"
 CLASSES="$BUILD/classes"
+TEST_CLASSES="$BUILD/test-classes"
 DEX="$BUILD/dex"
-KEYSTORE="$BUILD/debug.keystore"
+KEYSTORE="${KEYSTORE:-$BUILD/debug.keystore}"
+OUTPUT="$BUILD/Claude网络配置助手-Android-debug.apk"
+SOURCES=(
+  "$ROOT/app/src/main/java/com/jael/claudenet/ConfigBuilder.java"
+  "$ROOT/app/src/main/java/com/jael/claudenet/MainActivity.java"
+)
 
-if [ ! -f "$ANDROID_JAR" ] || [ ! -x "$BUILD_TOOLS/aapt2" ]; then
-  echo "缺少 Android SDK Platform 34 或 Build Tools 34.0.0" >&2
-  exit 1
-fi
+rm -rf "$CLASSES" "$TEST_CLASSES" "$DEX"
+mkdir -p "$CLASSES" "$TEST_CLASSES" "$DEX"
 
-rm -rf "$CLASSES" "$DEX"
-mkdir -p "$CLASSES" "$DEX"
+echo "==> 单元测试"
+javac -encoding UTF-8 -d "$TEST_CLASSES" \
+  "${SOURCES[0]}" "$ROOT/tests/com/jael/claudenet/ConfigBuilderTest.java"
+java -Dfile.encoding=UTF-8 -cp "$TEST_CLASSES" com.jael.claudenet.ConfigBuilderTest
 
-"$BUILD_TOOLS/aapt2" link \
+echo "==> 打包资源"
+# 源 Manifest 按 AGP 8 规范不写 package（由 Gradle namespace 提供），这里临时补上
+sed "s#<manifest #<manifest package=\"$PACKAGE\" #" \
+  "$ROOT/app/src/main/AndroidManifest.xml" > "$BUILD/AndroidManifest.xml"
+"$AAPT2" link \
   -o "$BUILD/resources.apk" \
   -I "$ANDROID_JAR" \
-  --manifest "$ROOT/app/src/main/AndroidManifest.xml" \
+  --manifest "$BUILD/AndroidManifest.xml" \
   --min-sdk-version 26 \
   --target-sdk-version 34 \
   --version-code 1 \
   --version-name 0.1.0
 
-javac -encoding UTF-8 -source 8 -target 8 \
+echo "==> 编译 Java"
+javac -encoding UTF-8 --release 8 \
   -classpath "$ANDROID_JAR" \
   -d "$CLASSES" \
-  "$ROOT/app/src/main/java/com/jael/claudenet/ConfigBuilder.java" \
-  "$ROOT/app/src/main/java/com/jael/claudenet/MainActivity.java"
+  "${SOURCES[@]}"
+(cd "$CLASSES" && jar cf "../classes.jar" .)
 
-jar cf "$BUILD/classes.jar" -C "$CLASSES" .
-"$BUILD_TOOLS/d8" --lib "$ANDROID_JAR" --min-api 26 --output "$DEX" "$BUILD/classes.jar"
+echo "==> 转换 DEX"
+"$D8" --lib "$ANDROID_JAR" --min-api 26 --output "$DEX" "$BUILD/classes.jar"
+
+echo "==> 组装 APK"
 cp "$BUILD/resources.apk" "$BUILD/unaligned.apk"
-(cd "$DEX" && zip -q -j "$BUILD/unaligned.apk" classes.dex)
-"$BUILD_TOOLS/zipalign" -f 4 "$BUILD/unaligned.apk" "$BUILD/aligned.apk"
+# 用 SDK 自带的 aapt 追加 classes.dex，不依赖系统 zip 命令
+(cd "$DEX" && "$AAPT" add -k "$BUILD/unaligned.apk" classes.dex >/dev/null)
+"$ZIPALIGN" -f 4 "$BUILD/unaligned.apk" "$BUILD/aligned.apk"
 
 if [ ! -f "$KEYSTORE" ]; then
   keytool -genkeypair -noprompt \
@@ -55,12 +117,12 @@ if [ ! -f "$KEYSTORE" ]; then
     -validity 10000 >/dev/null 2>&1
 fi
 
-OUTPUT="$BUILD/Claude网络配置助手-Android-debug.apk"
-"$BUILD_TOOLS/apksigner" sign \
+echo "==> 签名"
+"$APKSIGNER" sign \
   --ks "$KEYSTORE" \
   --ks-pass pass:android \
   --key-pass pass:android \
   --out "$OUTPUT" \
   "$BUILD/aligned.apk"
-"$BUILD_TOOLS/apksigner" verify --verbose "$OUTPUT"
+"$APKSIGNER" verify --verbose "$OUTPUT"
 echo "$OUTPUT"
