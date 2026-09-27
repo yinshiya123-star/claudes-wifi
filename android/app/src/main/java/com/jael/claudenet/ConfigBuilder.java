@@ -1,16 +1,16 @@
 package com.jael.claudenet;
 
+import java.util.List;
+
 final class ConfigBuilder {
     private ConfigBuilder() {}
 
     static String build(
             String subscriptionUrl,
             String host,
-            int port,
+            List<ProxyPortDetector.Endpoint> endpoints,
             String username,
-            String password,
-            String protocol) {
-        String type = protocol.equalsIgnoreCase("HTTP") ? "http" : "socks5";
+            String password) {
         StringBuilder yaml = new StringBuilder();
         yaml.append("# Claude 网络配置助手生成\n");
         yaml.append("# 原项目作者：Jael；Android 移植辅助版\n");
@@ -31,23 +31,38 @@ final class ConfigBuilder {
         yaml.append("      interval: 600\n\n");
 
         yaml.append("proxies:\n");
-        yaml.append("  - name: Claude-住宅ISP\n");
-        yaml.append("    type: ").append(type).append("\n");
-        yaml.append("    server: ").append(quote(host)).append("\n");
-        yaml.append("    port: ").append(port).append("\n");
-        if (!username.isEmpty()) {
-            yaml.append("    username: ").append(quote(username)).append("\n");
+        for (ProxyPortDetector.Endpoint endpoint : endpoints) {
+            String name = proxyName(endpoint);
+            String type = endpoint.protocol == ProxyPortDetector.Protocol.SOCKS5
+                    ? "socks5" : "http";
+            yaml.append("  - name: ").append(name).append("\n");
+            yaml.append("    type: ").append(type).append("\n");
+            yaml.append("    server: ").append(quote(host)).append("\n");
+            yaml.append("    port: ").append(endpoint.port).append("\n");
+            if (endpoint.protocol == ProxyPortDetector.Protocol.HTTPS) {
+                yaml.append("    tls: true\n");
+            }
+            if (!username.isEmpty()) {
+                yaml.append("    username: ").append(quote(username)).append("\n");
+            }
+            if (!password.isEmpty()) {
+                yaml.append("    password: ").append(quote(password)).append("\n");
+            }
+            yaml.append("    dialer-proxy: Claude-前置节点\n");
         }
-        if (!password.isEmpty()) {
-            yaml.append("    password: ").append(quote(password)).append("\n");
-        }
-        yaml.append("    dialer-proxy: Claude-前置节点\n\n");
+        yaml.append("\n");
 
         yaml.append("proxy-groups:\n");
         yaml.append("  - name: Claude-前置节点\n");
         yaml.append("    type: select\n");
         yaml.append("    use:\n");
         yaml.append("      - airport\n");
+        yaml.append("  - name: Claude-住宅ISP\n");
+        yaml.append("    type: select\n");
+        yaml.append("    proxies:\n");
+        for (ProxyPortDetector.Endpoint endpoint : endpoints) {
+            yaml.append("      - ").append(proxyName(endpoint)).append("\n");
+        }
         yaml.append("  - name: Claude-专用出口\n");
         yaml.append("    type: select\n");
         yaml.append("    proxies:\n");
@@ -72,5 +87,9 @@ final class ConfigBuilder {
 
     private static String quote(String value) {
         return "'" + value.replace("'", "''") + "'";
+    }
+
+    private static String proxyName(ProxyPortDetector.Endpoint endpoint) {
+        return "Claude-住宅ISP-" + endpoint.protocol.name() + "-" + endpoint.port;
     }
 }

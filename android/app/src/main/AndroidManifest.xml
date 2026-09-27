@@ -2,6 +2,14 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <queries>
+        <package android:name="com.github.metacubex.clash.meta" />
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="clashmeta" />
+        </intent>
+    </queries>
+
     <application
         android:allowBackup="false"
         android:label="Claude 网络配置助手"
