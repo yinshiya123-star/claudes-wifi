@@ -25,5 +25,11 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <!-- 仅供系统相机写入拍照原图，不导出 -->
+        <provider
+            android:name=".CaptureProvider"
+            android:authorities="com.jael.claudenet.capture"
+            android:exported="false"
+            android:grantUriPermissions="true" />
     </application>
 </manifest>

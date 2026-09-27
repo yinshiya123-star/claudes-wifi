@@ -1,6 +1,7 @@
 package com.jael.claudenet;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
@@ -11,6 +12,7 @@ import android.graphics.Color;
 import android.graphics.Typeface;
 import android.net.Uri;
 import android.os.Bundle;
+import android.provider.MediaStore;
 import android.text.InputType;
 import android.view.View;
 import android.view.ViewGroup;
@@ -30,6 +32,8 @@ import java.util.List;
 
 public final class MainActivity extends Activity {
     private static final int CREATE_CONFIG = 101;
+    private static final int TAKE_PHOTO = 102;
+    private static final int PICK_IMAGE = 103;
     private static final String PREFS = "claude_net_android";
     private static final String CLIENT_RELEASES =
             "https://github.com/MetaCubeX/ClashMetaForAndroid/releases";
@@ -87,6 +91,28 @@ public final class MainActivity extends Activity {
         note.setBackgroundColor(Color.rgb(228, 237, 252));
         note.setPadding(dp(14), dp(12), dp(14), dp(12));
         root.addView(note, matchWrap(dp(14)));
+
+        root.addView(section("拍照 / 截图识别"));
+        TextView scanHint = text("拍机场后台的订阅二维码或链接、住宅 ISP 购买页的 IP/端口/账号/密码，"
+                + "自动识别并填入。识别在手机本地完成，图片和识别出的文字不会上传"
+                + "（识别组件可能向 Google 发送不含图片和文字的匿名使用统计）。",
+                14, Color.rgb(75, 82, 94));
+        scanHint.setPadding(0, 0, 0, dp(8));
+        root.addView(scanHint);
+        LinearLayout scanRow = new LinearLayout(this);
+        scanRow.setOrientation(LinearLayout.HORIZONTAL);
+        Button takePhoto = button("拍照识别", Color.rgb(196, 110, 40));
+        takePhoto.setOnClickListener(v -> takePhoto());
+        Button pickImage = button("选截图识别", Color.rgb(196, 110, 40));
+        pickImage.setOnClickListener(v -> pickImage());
+        LinearLayout.LayoutParams half = new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+        LinearLayout.LayoutParams halfRight = new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+        halfRight.leftMargin = dp(8);
+        scanRow.addView(takePhoto, half);
+        scanRow.addView(pickImage, halfRight);
+        root.addView(scanRow, matchWrap(dp(4)));
 
         root.addView(section("机场订阅"));
         subscription = field("https://… 订阅地址", InputType.TYPE_CLASS_TEXT
@@ -199,6 +225,114 @@ public final class MainActivity extends Activity {
         }
     }
 
+    private void takePhoto() {
+        CaptureProvider.clear(this);
+        Uri output = CaptureProvider.captureUri();
+        Intent intent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
+        intent.putExtra(MediaStore.EXTRA_OUTPUT, output);
+        intent.setClipData(ClipData.newRawUri("", output));
+        intent.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                | Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        try {
+            startActivityForResult(intent, TAKE_PHOTO);
+        } catch (ActivityNotFoundException | SecurityException error) {
+            showStatus("无法打开相机，请改用“选截图识别”。", false);
+        }
+    }
+
+    private void pickImage() {
+        Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+        intent.setType("image/*");
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        try {
+            startActivityForResult(intent, PICK_IMAGE);
+        } catch (ActivityNotFoundException error) {
+            showStatus("系统没有可用的图片选择器。", false);
+        }
+    }
+
+    private void recognize(Uri image, boolean isCapture) {
+        showStatus("正在识别图片……", true);
+        ImageRecognizer.recognize(this, image, new ImageRecognizer.Callback() {
+            @Override
+            public void onResult(List<String> qrPayloads, String text) {
+                if (isCapture) CaptureProvider.clear(MainActivity.this);
+                if (isFinishing() || isDestroyed()) return;
+                showImportResult(ImportParser.parse(qrPayloads, text));
+            }
+
+            @Override
+            public void onError(Exception error) {
+                if (isCapture) CaptureProvider.clear(MainActivity.this);
+                if (isFinishing() || isDestroyed()) return;
+                showStatus("识别失败：" + error.getMessage(), false);
+            }
+        });
+    }
+
+    /** 识别结果先回显给用户核对，确认后才填入（任何识别都会出错）。 */
+    private void showImportResult(ImportParser.Result result) {
+        if (result.isEmpty()) {
+            showStatus("没有识别到订阅链接或 ISP 信息。请确保图片清晰、文字完整，"
+                    + "或直接手动填写。", false);
+            return;
+        }
+        StringBuilder message = new StringBuilder();
+        if (result.hasSubscription()) {
+            message.append("机场订阅：\n").append(result.subscriptionUrl).append("\n\n");
+        } else if (result.nodeScheme != null) {
+            message.append("二维码是单个 ").append(result.nodeScheme)
+                    .append(" 节点，不是订阅链接，无法使用。请在机场后台找“订阅链接”或"
+                            + "“Clash 订阅”的二维码/链接。\n\n");
+        }
+        if (result.hasIsp()) {
+            message.append("住宅 ISP：\n");
+            if (result.host != null) message.append("地址：").append(result.host).append('\n');
+            if (!result.ports.isEmpty()) {
+                message.append("端口：").append(joinPorts(result.ports)).append('\n');
+            }
+            if (result.username != null) {
+                message.append("账号：").append(result.username).append('\n');
+            }
+            if (result.password != null) {
+                message.append("密码：").append(mask(result.password)).append('\n');
+            }
+        }
+        message.append("\n请核对无误后填入；没识别到的项保持原样。");
+        boolean fillable = result.hasSubscription() || result.hasIsp();
+        AlertDialog.Builder dialog = new AlertDialog.Builder(this)
+                .setTitle(fillable ? "识别结果" : "未找到可填入的信息")
+                .setMessage(message.toString().trim())
+                .setNegativeButton(fillable ? "取消" : "知道了", null);
+        if (fillable) {
+            dialog.setPositiveButton("填入", (d, which) -> {
+                if (result.subscriptionUrl != null) subscription.setText(result.subscriptionUrl);
+                if (result.host != null) host.setText(result.host);
+                if (!result.ports.isEmpty()) port.setText(joinPorts(result.ports));
+                if (result.username != null) username.setText(result.username);
+                if (result.password != null) password.setText(result.password);
+                showStatus("✓ 已填入识别结果，请核对后再导入。", true);
+            });
+        }
+        dialog.show();
+        showStatus("识别完成，请在弹窗中核对。", true);
+    }
+
+    private static String joinPorts(List<Integer> ports) {
+        StringBuilder out = new StringBuilder();
+        for (int value : ports) {
+            if (out.length() > 0) out.append(' ');
+            out.append(value);
+        }
+        return out.toString();
+    }
+
+    private static String mask(String secret) {
+        if (secret.length() <= 2) return "**";
+        return secret.charAt(0) + "****" + secret.charAt(secret.length() - 1)
+                + "（共 " + secret.length() + " 位）";
+    }
+
     private void exportConfig() {
         withConfig(config -> {
             pendingConfig = config;
@@ -233,6 +367,20 @@ public final class MainActivity extends Activity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == TAKE_PHOTO) {
+            if (resultCode == RESULT_OK && CaptureProvider.captureFile(this).length() > 0) {
+                recognize(CaptureProvider.captureUri(), true);
+            } else {
+                CaptureProvider.clear(this);
+            }
+            return;
+        }
+        if (requestCode == PICK_IMAGE) {
+            if (resultCode == RESULT_OK && data != null && data.getData() != null) {
+                recognize(data.getData(), false);
+            }
+            return;
+        }
         if (requestCode != CREATE_CONFIG) return;
         String config = pendingConfig;
         pendingConfig = null;

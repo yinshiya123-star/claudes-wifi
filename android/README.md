@@ -8,6 +8,9 @@
 它可以：
 
 - 在设备本地保存机场订阅 URL 与住宅 ISP 代理信息；
+- 拍照或选截图，自动识别机场订阅（二维码/链接）和住宅 ISP 的 IP、端口、账号、密码，
+  核对后一键填入；识别在手机本地完成（ML Kit 离线模型），图片和识别出的文字不会上传
+  （ML Kit 可能向 Google 发送不含图片和文字的匿名使用统计）；
 - 一次输入多个端口，并自动识别 SOCKS5、HTTPS 或 HTTP 代理；
 - 生成 Mihomo/Clash Meta 可读取的链式代理 YAML：国外流量先经机场节点、再从美国住宅 IP 出去，国内直连；
   机场订阅未就绪时拒绝连接，不会绕过机场直连住宅 IP；
@@ -20,22 +23,22 @@ Clash Meta 客户端，用户仍需在客户端确认添加，并由客户端申
 
 ## 本地构建
 
-当前版本：`0.3.2`。要求：JDK 17、Android SDK Platform 34、Build Tools 34.0.0。
-
-方式一：脚本构建（无需 Gradle，macOS / Linux / Windows Git Bash 均可）
+当前版本：`0.4.0`。要求：JDK 17、Android SDK Platform 34。
 
 ```bash
 ./build-android.sh
 ```
 
-脚本会先运行 `tests/` 中的单元测试，再打包签名。SDK 自动从
-`ANDROID_SDK_ROOT`/`ANDROID_HOME` 或常见默认路径查找，JDK 可通过 `JAVA_HOME` 指定。
-构建产物：`build/Claude网络配置助手-Android-debug.apk`
+脚本会先在 JVM 上运行 `tests/` 中的单元测试，再调用 Gradle 打包：
 
-方式二：Gradle / Android Studio
+- 找到 `keystore.properties`（`android/` 目录下，或环境变量 `CLAUDE_NET_KEYSTORE_PROPERTIES`
+  指向的文件）时，生成正式签名的 `build/Claude网络配置助手-Android-release.apk`；
+- 否则生成调试签名的 `build/Claude网络配置助手-Android-debug.apk`。
 
-```bash
-./gradlew assembleDebug
-```
+也可以直接用 Gradle / Android Studio：`./gradlew assembleRelease` 或 `./gradlew assembleDebug`。
 
-构建产物：`app/build/outputs/apk/debug/app-debug.apk`
+### 正式签名
+
+`keystore.properties` 格式见 `app/build.gradle` 顶部注释。密钥库和密码**不要提交到仓库**
+（已加入 `.gitignore`）。Android 只允许同一证书签名的新版本覆盖安装，
+丢失密钥库后用户只能卸载重装，请务必离线备份。

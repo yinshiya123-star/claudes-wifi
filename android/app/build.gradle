@@ -2,6 +2,19 @@ plugins {
     id 'com.android.application'
 }
 
+// 正式签名：密钥库和密码不进仓库。默认读取 android/keystore.properties，
+// 也可以用环境变量 CLAUDE_NET_KEYSTORE_PROPERTIES 指向其他位置。内容示例：
+//   storeFile=C:/Users/you/claude-net-signing/claude-net-release.jks
+//   storePassword=…
+//   keyAlias=claude-net
+//   keyPassword=…
+def keystorePropertiesFile = file(System.getenv('CLAUDE_NET_KEYSTORE_PROPERTIES')
+        ?: rootProject.file('keystore.properties'))
+def keystoreProperties = new Properties()
+if (keystorePropertiesFile.exists()) {
+    keystorePropertiesFile.withInputStream { keystoreProperties.load(it) }
+}
+
 android {
     namespace 'com.jael.claudenet'
     compileSdk 34
@@ -10,13 +23,30 @@ android {
         applicationId 'com.jael.claudenet'
         minSdk 26
         targetSdk 34
-        versionCode 5
-        versionName '0.3.2'
+        versionCode 6
+        versionName '0.4.0'
+        // ML Kit 离线模型带原生库，只保留手机常见架构以控制安装包大小
+        ndk {
+            abiFilters 'arm64-v8a', 'armeabi-v7a'
+        }
+    }
+
+    signingConfigs {
+        release {
+            if (keystorePropertiesFile.exists()) {
+                storeFile file(keystoreProperties['storeFile'])
+                storePassword keystoreProperties['storePassword']
+                keyAlias keystoreProperties['keyAlias']
+                keyPassword keystoreProperties['keyPassword']
+            }
+        }
     }
 
     buildTypes {
         release {
             minifyEnabled false
+            // 没有 keystore.properties 时生成未签名的 release 包
+            signingConfig keystorePropertiesFile.exists() ? signingConfigs.release : null
         }
     }
 
@@ -25,8 +55,11 @@ android {
         targetCompatibility JavaVersion.VERSION_1_8
         encoding 'UTF-8'
     }
+}
 
-    sourceSets {
-        test.java.srcDirs = ['../tests']
-    }
+dependencies {
+    // 离线二维码与中英文文字识别：模型打包在 APK 内，图片和文字不上传；
+    // ML Kit 自带匿名使用统计（datatransport），不含图片和文字
+    implementation 'com.google.mlkit:barcode-scanning:17.3.0'
+    implementation 'com.google.mlkit:text-recognition-chinese:16.0.1'
 }
