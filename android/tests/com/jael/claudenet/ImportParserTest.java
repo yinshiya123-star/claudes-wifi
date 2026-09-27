@@ -21,10 +21,24 @@ public final class ImportParserTest {
         r = ImportParser.parse(NO_QR, "demo:s3cret@203.0.113.7:50101");
         isp(r, "203.0.113.7", Arrays.asList(50101), "demo", "s3cret");
 
-        // 4. 英文标签，HTTP 与 SOCKS5 两个端口，OCR 把 0 认成 O
-        r = ImportParser.parse(NO_QR, "IP: 203.0.113.7\nHTTP port: 5O100\n"
-                + "SOCKS5 port: 50101\nLogin: demo\nPassword: s3cret");
-        isp(r, "203.0.113.7", Arrays.asList(50100, 50101), "demo", "s3cret");
+        // 4. 英文标签，同时列出 HTTP 与 SOCKS5 端口：只保留 SOCKS5，避免生成第二个节点
+        r = ImportParser.parse(NO_QR, "IP: 203.0.113.7\nHTTP port: 50100\n"
+                + "SOCKS5 port: 5O101\nLogin: demo\nPassword: s3cret");
+        isp(r, "203.0.113.7", Arrays.asList(50101), "demo", "s3cret");
+        require("SOCKS5".equals(r.protocol), "protocol=" + r.protocol);
+
+        // 只有 HTTP 端口时标记为 HTTP
+        r = ImportParser.parse(NO_QR, "IP: 203.0.113.7\nHTTP port: 50100\nLogin: demo\nPassword: s3cret");
+        isp(r, "203.0.113.7", Arrays.asList(50100), "demo", "s3cret");
+        require("HTTP".equals(r.protocol), "http protocol=" + r.protocol);
+
+        // 代理 URL 自带类型
+        r = ImportParser.parse(NO_QR, "http://demo:s3cret@203.0.113.7:50100");
+        require("HTTP".equals(r.protocol), "url protocol=" + r.protocol);
+
+        // 标签里两种都写了，看不出类型
+        r = ImportParser.parse(NO_QR, "IP: 203.0.113.7\nHTTP(S)/SOCKS5 port: 50101");
+        require(r.protocol == null && r.ports.equals(Arrays.asList(50101)), "mixed label");
 
         // 5. 中文标签（全角冒号）
         r = ImportParser.parse(NO_QR, "IP地址：203.0.113.7\n端口：50101\n账号：demo\n密码：s3cret");

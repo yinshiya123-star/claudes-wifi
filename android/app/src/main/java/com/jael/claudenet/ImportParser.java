@@ -36,6 +36,10 @@ final class ImportParser {
         final List<Integer> ports = new ArrayList<>();
         String username;
         String password;
+        /** 截图里写明的端口类型：SOCKS5 / HTTP / HTTPS；看不出来时为 null。 */
+        String protocol;
+        /** 每个端口的标签类型，用于同时列出 HTTP 与 SOCKS5 端口时只保留一个。 */
+        final java.util.Map<Integer, String> portProtocol = new java.util.LinkedHashMap<>();
 
         boolean hasSubscription() {
             return subscriptionUrl != null;
@@ -100,7 +104,38 @@ final class ImportParser {
         List<String> lines = normalizeLines(text == null ? "" : text);
         if (result.subscriptionUrl == null) result.subscriptionUrl = findSubscription(lines);
         parseIsp(lines, result);
+        applyProtocol(result);
         return result;
+    }
+
+    /**
+     * 购买页常同时列出 HTTP 端口和 SOCKS5 端口：只保留 SOCKS5 那个，避免生成第二个节点；
+     * 只有 HTTP 端口时标记为 HTTP。
+     */
+    private static void applyProtocol(Result result) {
+        List<Integer> socks = new ArrayList<>();
+        List<Integer> http = new ArrayList<>();
+        for (int port : result.ports) {
+            String type = result.portProtocol.get(port);
+            if ("SOCKS5".equals(type)) socks.add(port);
+            if ("HTTP".equals(type) || "HTTPS".equals(type)) http.add(port);
+        }
+        if (!socks.isEmpty()) {
+            result.ports.retainAll(socks);
+            result.protocol = "SOCKS5";
+        } else if (!http.isEmpty() && http.size() == result.ports.size()) {
+            result.protocol = result.portProtocol.get(http.get(0));
+        }
+    }
+
+    /** 标签里写了 SOCKS 还是 HTTP；两者都写（如 “HTTP(S)/SOCKS5 port”）时看不出来。 */
+    private static String protocolOfLabel(String label) {
+        String lower = label.toLowerCase(Locale.ROOT);
+        boolean socks = lower.contains("socks");
+        boolean http = lower.contains("http");
+        if (socks && !http) return "SOCKS5";
+        if (http && !socks) return lower.contains("https") ? "HTTPS" : "HTTP";
+        return null;
     }
 
     private static void parseQr(String payload, Result result) {
@@ -185,6 +220,11 @@ final class ImportParser {
             Matcher at = AT_FORM.matcher(line);
             if (at.find() && validHost(at.group(4)) && validPort(at.group(5))) {
                 fill(result, at.group(4), at.group(5), at.group(2), at.group(3));
+                if (at.group(1) != null) {
+                    // socks5://… / http://… 已写明类型
+                    result.portProtocol.put(Integer.parseInt(at.group(5)),
+                            protocolOfLabel(at.group(1)));
+                }
                 continue;
             }
             Matcher colon = COLON_FORM.matcher(line);
@@ -242,6 +282,7 @@ final class ImportParser {
             String line = lines.get(i);
             String kind;
             String value;
+            String labelText = line;
             Matcher hostPortLabel = HOST_PORT_LABEL.matcher(line);
             Matcher userPassLabel = USER_PASS_LABEL.matcher(line);
             Matcher m = LABELED.matcher(line);
@@ -256,6 +297,7 @@ final class ImportParser {
                 // OCR 常丢掉冒号：“Port 50101”“Login demo”
                 kind = spaced[0];
                 value = spaced[1];
+                labelText = spaced[2];
             } else if (hostPortLabel.matches()) {
                 kind = "host";
                 value = hostPortLabel.group(1);
@@ -265,6 +307,7 @@ final class ImportParser {
             } else if (m.matches() && labelKind(m.group(1)) != null) {
                 kind = labelKind(m.group(1));
                 value = m.group(2);
+                labelText = m.group(1);
             } else if (isLabelOnly(line) && i + 1 < lines.size()) {
                 // OCR 常把“标签”和“值”拆成两行
                 kind = labelKind(line);
@@ -290,7 +333,13 @@ final class ImportParser {
                     break;
                 case "port":
                     Matcher p = PORT_NUMBER.matcher(NOT_A_PORT.matcher(fixDigits(value)).replaceAll(" "));
-                    while (p.find()) addPort(result, p.group(1));
+                    String type = protocolOfLabel(labelText);
+                    while (p.find()) {
+                        addPort(result, p.group(1));
+                        if (type != null && validPort(p.group(1))) {
+                            result.portProtocol.put(Integer.parseInt(p.group(1)), type);
+                        }
+                    }
                     break;
                 case "user":
                     if (result.username == null) result.username = value.split("\\s")[0];
@@ -355,7 +404,7 @@ final class ImportParser {
             if (kind == null) continue;
             StringBuilder value = new StringBuilder(words[n]);
             for (int k = n + 1; k < words.length; k++) value.append(' ').append(words[k]);
-            return new String[]{kind, value.toString()};
+            return new String[]{kind, value.toString(), label.toString()};
         }
         return null;
     }
