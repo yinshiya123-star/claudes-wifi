@@ -36,6 +36,11 @@ public final class ConfigBuilderTest {
         // 规则不触发本地解析，国外域名不会发给国内 DNS（防 DNS 泄露）
         require(yaml.contains("  - GEOSITE,cn,DIRECT\n  - GEOIP,CN,DIRECT,no-resolve\n"));
         require(!yaml.contains("GEOIP,CN,DIRECT\n"));
+        // 私人 DNS/App 自己解析拿到被污染的 IP 时，靠嗅探还原真实域名（否则 Google 打不开）
+        require(yaml.contains("sniffer:\n  enable: true\n  force-dns-mapping: true\n"
+                + "  parse-pure-ip: true\n  override-destination: true\n"));
+        // HTTP 只嗅探 80，不能误伤 8080 等住宅代理端口的检测流量
+        require(yaml.contains("    HTTP:\n      ports: [80]\n"));
         // 住宅 ISP 不支持 UDP，国外 UDP 必须拒绝，不能落到 DIRECT 绕过住宅 IP
         require(yaml.contains("  - NETWORK,UDP,REJECT\n  - MATCH,住宅ISP-全局出口\n"));
         // 全局模式也要走住宅出口，不能是默认的 DIRECT

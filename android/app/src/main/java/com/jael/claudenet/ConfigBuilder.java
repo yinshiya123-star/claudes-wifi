@@ -160,6 +160,24 @@ final class ConfigBuilder {
         yaml.append("    - https://223.5.5.5/dns-query\n");
         yaml.append("    - https://doh.pub/dns-query\n\n");
 
+        // 手机开了“私人 DNS”或 App 自己解析域名时，拿到的是国内 DNS 污染过的 IP
+        // （google.com 等），连过去必然失败。嗅探 TLS/HTTP 里的真实域名并替换目标，
+        // 交给住宅 ISP 远端解析。HTTP 只嗅探 80 端口，避免误伤住宅代理端口的检测流量。
+        yaml.append("sniffer:\n");
+        yaml.append("  enable: true\n");
+        yaml.append("  force-dns-mapping: true\n");
+        yaml.append("  parse-pure-ip: true\n");
+        yaml.append("  override-destination: true\n");
+        yaml.append("  sniff:\n");
+        yaml.append("    HTTP:\n");
+        yaml.append("      ports: [80]\n");
+        yaml.append("    TLS:\n");
+        yaml.append("      ports: [443, 8443]\n");
+        yaml.append("    QUIC:\n");
+        yaml.append("      ports: [443, 8443]\n");
+        yaml.append("  skip-domain:\n");
+        yaml.append("    - '+.push.apple.com'\n\n");
+
         yaml.append("rules:\n");
         // 连住宅 ISP 服务器本身的流量（例如本 App 检测端口协议）走机场：
         // 国内直连住宅 IP 通常被阻断，走住宅出口则会绕回自己
